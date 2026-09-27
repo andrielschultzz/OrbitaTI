@@ -2,7 +2,7 @@
 
 CRM enxuto e multi-tenant para profissionais de TI autônomos e consultorias de até dez pessoas.
 
-**Disciplina:** Arquitetura de Software SaaS (8512) — EC7, SETREM 2026-2
+**Disciplina:** Arquitetura de Software SaaS (8512) — EC6, SETREM 2026-2
 **Unidade:** Andriel Schultz e Cristofer
 
 ---
