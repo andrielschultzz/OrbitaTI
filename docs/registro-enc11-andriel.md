@@ -1,47 +1,34 @@
-# Rascunho de serviços — OrbitaTI
+# Folha de Registro — Encontro de 15/10
+**Arquitetura de Software SAAS · o CampoConta rodando**
 
-**Unidade:** Andriel Schultz
-**Origem:** verso da folha de registro do Encontro de 15/10 — rascunho do ADR de comunicação da Etapa 2 (29/10)
-
----
-
-## 1. As caixas
-
-**Foto do desenho:** `docs/desenho-servicos.jpg`
-
-```mermaid
-flowchart TB
-    nav["Navegador<br/>usuário do tenant"] -->|"HTTPS + JWT"| api["<b>API de Contatos</b><br/>porta de entrada<br/>descobre o tenant no JWT"]
-    api -->|"lê e grava"| dbA[("Banco da API<br/>schema orbita<br/>RLS")]
-    api -->|"evento na fila<br/>tenant_id + arquivo_id"| fila[["Fila<br/>Redis"]]
-    fila --> imp["<b>Serviço de Importação</b><br/>processa CSV em lotes de 100"]
-    imp -->|"progresso do job"| dbB[("Banco da Importação<br/>schema importacao<br/>RLS")]
-    imp -->|"grava contatos em lote<br/>token de serviço com tenant_id"| api
-```
-
-Cada serviço é dono do próprio schema. A Importação não escreve direto na tabela de contatos: ela pede para a API.
+- **Nome:** Andriel Schultz
+- **Unidade de PI:** OrbitaTI
 
 ---
 
-## 2. Quatro respostas
+## Frente
 
-**a) Qual é o segundo serviço, e o que ele recebe do primeiro?**
-O Serviço de Importação; recebe da API de Contatos, pela fila, um evento com `tenant_id`, `arquivo_id` e `usuario_id`.
+### Abertura (2 min, sem consulta)
 
-**b) Onde o tenant é descoberto, e como chega ao segundo serviço?**
-Na API de Contatos, a partir do claim do JWT assinado; chega à Importação dentro da mensagem na fila, nunca por parâmetro vindo do cliente.
+Microsserviço é uma parte do sistema que roda, é publicada e guarda os próprios dados de forma independente. Em multi-tenant, todo serviço passa a precisar saber de qual cliente é cada operação, e o banco precisa ter uma barreira própria para um cliente não ver o dado do outro.
 
-**c) Se alguém esquecer o filtro no código, o que segura o vazamento?**
-O Row-Level Security do PostgreSQL com `FORCE`: sem o `WHERE`, o banco devolve só as linhas do tenant da sessão.
+### Os seis experimentos
 
-**d) Se o segundo serviço cair, o que o usuário ainda consegue fazer?**
-Tudo menos importar em massa: login, busca, cadastro manual e oportunidades seguem; os jobs ficam na fila e são processados quando ele voltar.
+| Experimento | Minha previsão | O que saiu | O nome disso |
+|---|---|---|---|
+| **1 — Seguir uma requisição** | Ela ganha um identificador na entrada que aparece no log de cada serviço | O mesmo identificador apareceu nos logs de todos os serviços, do início ao fim | Rastreamento distribuído (Correlation ID) |
+| **2 — A Buricá tenta ver o dado da Alvorada** | Volta vazio, e quem bloqueia é o banco, não o código | A consulta voltou vazia, sem nenhum dado da Alvorada | Isolamento de tenant (RLS) |
+| **3 — O relatório da diretoria** | Uma consulta pesada no mesmo banco deixa todo mundo lento | O relatório consumiu o banco e as operações normais ficaram mais lentas | Separação OLTP × OLAP (réplica de leitura / CQRS) |
+| **4 — A cobrança sai do ar** | Quem depende da cobrança trava junto, se a chamada for direta | Com chamada direta o erro se espalhou; com fila o resto continuou funcionando | Falha em cascata / Circuit Breaker |
+| **5 — O mesmo evento chega duas vezes** | Se ninguém conferir, o registro é duplicado | O segundo evento foi reconhecido como repetido e descartado | Idempotência (consumidor idempotente) |
+| **6 — O vizinho barulhento** | Um cliente com carga alta deixa os outros lentos | A carga de um tenant aumentou o tempo de resposta dos outros | Vizinho barulhento / Rate limiting |
+
+### No fim do encontro (2 min)
+
+Microsserviço é uma unidade independente de negócio e de dados. Em multi-tenant, o `tenant_id` precisa acompanhar cada requisição e cada evento entre os serviços, o banco precisa isolar por conta própria (RLS), e cada tenant precisa de limite de uso — senão um cliente atrasa ou enxerga os outros. Também aprendi que serviço que depende de outro precisa continuar de pé quando o outro cai, e que evento repetido não pode gerar efeito repetido.
 
 ---
 
-## Pendências até 29/10
+## Verso — OrbitaTI
 
-- [ ] Subir a foto do desenho como `docs/desenho-servicos.jpg`
-- [ ] Transformar este rascunho no ADR-004 — comunicação entre serviços
-- [ ] Implementar os dois serviços com isolamento demonstrável ao vivo
-
+O verso combinado da dupla está em [`servicos-rascunho.md`](servicos-rascunho.md).
