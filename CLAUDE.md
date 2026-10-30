@@ -74,15 +74,22 @@ API local: http://localhost:3000 · no kind: http://localhost:30080
    serviço (segredo próprio, `aud: api-contatos`, `iss: importacao`, expira em 60 s, claim `tenant_id`).
 8. Idempotência: job do BullMQ com `jobId = importacao_id`; lote registrado em `orbita.lotes_aplicados`
    (PK `importacao_id, numero`); contatos com upsert `ON CONFLICT (tenant_id, email)`. E-mails sempre minúsculos.
+9. E-mail do contato: **opcional** no cadastro manual (só `nome` é obrigatório — cadastrar em 30 s é requisito
+   do produto); **obrigatório** na importação, porque é a chave de deduplicação. Linha sem e-mail vai para
+   `importacao.erros_linha`.
+10. O progresso da importação fica em `orbita.importacoes`, atualizado pela rota `/interno` que recebe os lotes.
+   A API nunca lê o schema `importacao`.
 
 ## Números do projeto (não invente outros; se precisar, derive e documente a conta)
 
 | Item | Valor |
 |---|---|
 | Lote de importação | 100 linhas, pausa de 500 ms entre lotes |
-| Linhas por importação | individual 100 · equipe 5.000 (CSV até 1 MB, no payload do job) |
-| Importações simultâneas por tenant | individual 2 · equipe 5 |
-| Rate limit por tenant | 60 req/min por usuário permitido no plano (individual 60 · equipe 600) |
+| Linhas por importação | individual 100 · equipe 5.000 (5.000 ≈ 1 MB ÷ ~200 bytes por linha; CSV vai no payload do job) |
+| Importações simultâneas por tenant | individual 2 · equipe 5 — **contadas no banco** (`orbita.importacoes` com status `na_fila`/`processando`) no `POST /importacoes`; não usar recurso do BullMQ Pro |
+| Intervalo entre importações | **nenhum**: a proteção vem do lote + pausa + `concurrency: 2` do worker (no máximo 2 importações tocam o banco ao mesmo tempo). Substitui o intervalo de 5 min do ADR-003; registrar no ADR-004 |
+| Rate limit por tenant | 60 req/min por usuário permitido no plano (individual 1 × 60 = 60 · equipe 10 × 60 = 600); 60/min = um clique por segundo em rajada |
+| Armazenamento do rate limit | **Redis** (a API roda com 2 réplicas no kind; em memória cada réplica contaria separado e o limite dobraria). Redis fora → `skipOnError: true`, o limite é ignorado em vez de derrubar a API |
 | Rate limit de login | 10 req/min por IP + e-mail |
 | Rate limit de cadastro | `LIMITE_CADASTRO_POR_MIN` por IP (padrão 60) |
 | Token de acesso | 15 min |
@@ -90,6 +97,13 @@ API local: http://localhost:3000 · no kind: http://localhost:30080
 | CQ-02 | 100% das tentativas cruzadas → 404 |
 
 Planos e limites ficam em um só lugar: `services/api-contatos/src/planos.js` (é a "feature flag por plano").
+
+## Documentos da Etapa 1 desatualizados
+
+Os docs da Etapa 1 têm SQL simplificado que **não deve ser copiado**: `current_setting('app.tenant_id')` sem
+`true` e sem `NULLIF` (dá erro sem tenant) e `SET LOCAL` com valor concatenado. Quando doc e este arquivo
+divergirem, **este arquivo prevalece**. As divergências conhecidas estão em `docs/pendencias-bloco-7.md` e
+são corrigidas no Bloco 7 — não corrija docs antes disso, a menos que eu peça.
 
 ## Observabilidade
 
