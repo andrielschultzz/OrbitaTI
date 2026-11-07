@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" role="img" aria-labelledby="titulo-simbolo">
+  <title id="titulo-simbolo">OrbitaTI</title>
+  <!--
+    Símbolo do OrbitaTI, redesenhado em vetor a partir de docs/marca/logo-referencia.jpg.
+    Ordem de desenho (é ela que dá a profundidade):
+      1. halo do planeta;
+      2. metade de TRÁS dos anéis (a de cima, que o planeta encobre);
+      3. o planeta;
+      4. metade da FRENTE dos anéis (a de baixo, que passa por cima do planeta).
+    Os anéis são elipses desenhadas na horizontal e giradas -22 graus.
+  -->
+  <defs>
+    <!-- Anel: índigo na ponta de baixo-esquerda até teal na ponta de cima-direita -->
+    <linearGradient id="sim-anel" gradientUnits="userSpaceOnUse" x1="14" y1="120" x2="226" y2="120">
+      <stop offset="0" stop-color="#4769E5"/>
+      <stop offset="0.3" stop-color="#307FDC"/>
+      <stop offset="0.65" stop-color="#42DEF7"/>
+      <stop offset="1" stop-color="#24E0D1"/>
+    </linearGradient>
+
+    <!-- Corpo do planeta: escuro, com um leve volume no alto à esquerda -->
+    <radialGradient id="sim-corpo" cx="0.42" cy="0.36" r="0.7">
+      <stop offset="0" stop-color="#17405F"/>
+      <stop offset="0.55" stop-color="#0A1E33"/>
+      <stop offset="1" stop-color="#030B1A"/>
+    </radialGradient>
+
+    <!-- Borda luminosa: mais clara em cima à direita, onde a "luz" bate -->
+    <linearGradient id="sim-borda" x1="0.85" y1="0.1" x2="0.15" y2="0.9">
+      <stop offset="0" stop-color="#E6FDFF"/>
+      <stop offset="0.35" stop-color="#42DEF7"/>
+      <stop offset="1" stop-color="#307FDC"/>
+    </linearGradient>
+
+    <radialGradient id="sim-halo" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0.62" stop-color="#42DEF7" stop-opacity="0.55"/>
+      <stop offset="0.8" stop-color="#42DEF7" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#42DEF7" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Glow: o traço borrado por baixo do traço nítido -->
+    <filter id="sim-brilho" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="2.4" result="borrado"/>
+      <feMerge>
+        <feMergeNode in="borrado"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- 1. Halo -->
+  <circle cx="120" cy="120" r="88" fill="url(#sim-halo)"/>
+
+  <!-- 2. Metade de trás dos anéis (arco de cima) -->
+  <g transform="rotate(-22 120 120)" fill="none" stroke="url(#sim-anel)" stroke-linecap="round" filter="url(#sim-brilho)">
+    <path d="M 14 120 A 106 30 0 0 1 226 120" stroke-width="4" opacity="0.85"/>
+    <path d="M 26 120 A 94 24 0 0 1 214 120" stroke-width="2.6" opacity="0.85"/>
+  </g>
+
+  <!-- 3. Planeta -->
+  <circle cx="120" cy="120" r="60" fill="url(#sim-corpo)"/>
+  <circle cx="120" cy="120" r="60" fill="none" stroke="url(#sim-borda)" stroke-width="3.2" filter="url(#sim-brilho)"/>
+
+  <!-- 4. Metade da frente dos anéis (arco de baixo) -->
+  <g transform="rotate(-22 120 120)" fill="none" stroke="url(#sim-anel)" stroke-linecap="round" filter="url(#sim-brilho)">
+    <path d="M 226 120 A 106 30 0 0 1 14 120" stroke-width="4"/>
+    <path d="M 214 120 A 94 24 0 0 1 26 120" stroke-width="2.6"/>
+  </g>
+</svg>

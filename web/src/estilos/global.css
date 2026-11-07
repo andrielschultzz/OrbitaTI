@@ -1,0 +1,226 @@
+@import "tailwindcss";
+@import "./tokens.css";
+
+/*
+ * Tailwind lê os tokens: bg-superficie, text-texto-mudo, border-borda-campo, font-titulo...
+ * "inline" faz a utilidade usar var(--token) direto, então trocar o tema troca tudo sem rebuild.
+ * Não use cores do Tailwind (blue-500 etc.) no Portal: os tokens são a única fonte.
+ */
+@theme inline {
+  --color-*: initial;
+  --color-fundo: var(--fundo);
+  --color-superficie: var(--superficie);
+  --color-superficie-elevada: var(--superficie-elevada);
+  --color-texto: var(--texto);
+  --color-texto-secundario: var(--texto-secundario);
+  --color-texto-mudo: var(--texto-mudo);
+  --color-borda-sutil: var(--borda-sutil);
+  --color-borda-campo: var(--borda-campo);
+  --color-primario: var(--primario);
+  --color-sobre-primario: var(--sobre-primario);
+  --color-ciano: var(--ciano);
+  --color-teal: var(--teal);
+  --color-azul: var(--azul);
+  --color-indigo: var(--indigo);
+  --color-foco: var(--foco);
+  --color-sucesso: var(--sucesso);
+  --color-aviso: var(--aviso);
+  --color-erro: var(--erro);
+  --color-transparent: transparent;
+  --color-current: currentColor;
+
+  --font-*: initial;
+  --font-titulo: var(--fonte-titulo);
+  --font-corpo: var(--fonte-corpo);
+
+  --spacing: var(--espaco);
+
+  --radius-campo: var(--raio-campo);
+  --radius-cartao: var(--raio-cartao);
+  --radius-folha: var(--raio-folha);
+
+  --shadow-elevada: var(--sombra-elevada);
+}
+
+@layer base {
+  html {
+    background-color: var(--fundo);
+    color: var(--texto);
+    font-family: var(--fonte-corpo);
+    font-size: 100%; /* 16 px: o iOS não dá zoom em campo com 16 px ou mais */
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    min-height: 100dvh;
+    line-height: 1.5;
+    background:
+      radial-gradient(ellipse 120% 60% at 50% -10%, var(--fundo-brilho), transparent 70%),
+      var(--fundo);
+    background-attachment: fixed;
+    overflow-x: hidden;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--fonte-titulo);
+    font-weight: 700;
+    line-height: 1.2;
+    text-wrap: balance;
+  }
+
+  /* Foco visível: anel de 2 px com offset, em tudo que recebe teclado */
+  :focus-visible {
+    outline: 2px solid var(--foco);
+    outline-offset: 2px;
+  }
+
+  button,
+  [role="button"],
+  a[href],
+  label[for],
+  select,
+  summary {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  [aria-disabled="true"] {
+    cursor: not-allowed;
+  }
+}
+
+/* Componentes que se repetem e não ficam legíveis só com utilidades */
+@layer components {
+  .botao {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: calc(var(--espaco) * 2);
+    min-height: var(--alvo-toque);
+    padding-inline: calc(var(--espaco) * 5);
+    border-radius: var(--raio-campo);
+    font-weight: 600;
+    font-size: 1rem;
+    transition:
+      background var(--duracao-rapida) var(--curva),
+      box-shadow var(--duracao-rapida) var(--curva),
+      opacity var(--duracao-rapida) var(--curva),
+      border-color var(--duracao-rapida) var(--curva);
+    user-select: none;
+  }
+
+  .botao-primario {
+    background: var(--primario-fundo);
+    color: var(--sobre-primario);
+    box-shadow: var(--brilho-primario);
+  }
+  .botao-primario:hover:not(:disabled) {
+    background: var(--primario-fundo-hover);
+  }
+
+  .botao-secundario {
+    background: transparent;
+    color: var(--texto);
+    border: 1px solid var(--borda-campo);
+  }
+  .botao-secundario:hover:not(:disabled) {
+    border-color: var(--primario);
+  }
+
+  .botao-perigo {
+    background: transparent;
+    color: var(--erro);
+    border: 1px solid currentColor;
+  }
+
+  .botao-fantasma {
+    background: transparent;
+    color: var(--texto-secundario);
+  }
+  .botao-fantasma:hover:not(:disabled) {
+    color: var(--texto);
+    background: var(--superficie-elevada);
+  }
+
+  .botao:disabled {
+    opacity: 0.55;
+    box-shadow: none;
+  }
+
+  .botao:active:not(:disabled) {
+    opacity: 0.85;
+  }
+
+  .campo {
+    width: 100%;
+    min-height: var(--alvo-toque);
+    padding: calc(var(--espaco) * 2.5) calc(var(--espaco) * 3.5);
+    border-radius: var(--raio-campo);
+    border: 1px solid var(--borda-campo);
+    background: var(--fundo);
+    color: var(--texto);
+    font-size: 1rem;
+    transition: border-color var(--duracao-rapida) var(--curva);
+  }
+  .campo::placeholder {
+    color: var(--texto-mudo);
+  }
+  .campo:hover {
+    border-color: var(--texto-secundario);
+  }
+  .campo:focus-visible {
+    border-color: var(--foco);
+    outline-offset: 0;
+  }
+  .campo[aria-invalid="true"] {
+    border-color: var(--erro);
+  }
+
+  .cartao {
+    background: var(--superficie);
+    border: 1px solid var(--borda-sutil);
+    border-radius: var(--raio-cartao);
+  }
+
+  /* Gradiente de marca em texto (o "TI" do logotipo) */
+  .texto-gradiente {
+    background: var(--gradiente-ti);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+}
+
+/* Movimento: quem pede menos movimento não vê glow pulsando nem órbita girando */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Mapa de órbita: no máximo uma rotação lenta e sutil do anel tracejado */
+@keyframes orbita-girar {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.mapa-orbita-giro {
+  transform-origin: 50% 50%;
+  transform-box: view-box;
+  animation: orbita-girar 120s linear infinite;
+}
+/* Rótulos do mapa: contorno da cor da superfície para o texto não "cruzar" as linhas dos anéis */
+.mapa-orbita-rotulo {
+  paint-order: stroke;
+  stroke: var(--superficie);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
