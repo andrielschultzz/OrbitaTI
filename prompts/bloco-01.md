@@ -39,7 +39,9 @@ Faça:
    orbita.contatos(id, tenant_id fk, nome not null, email, telefone, empresa, observacao,
                    ultima_interacao_em, criado_em, atualizado_em)
    orbita.importacoes(id, tenant_id, usuario_id, status check na_fila|processando|concluida|falhou,
-                      total_linhas, total_lotes, lotes_aplicados default 0, criado_em, concluida_em)
+                      total_linhas, total_lotes (nulo até o worker informar), linhas_invalidas,
+                      lotes_aplicados default 0, criado_em, concluida_em)
+   (por que total_lotes nasce nulo e existe linhas_invalidas: docs/contrato-api.md, seção 8)
    orbita.lotes_aplicados(importacao_id fk, numero, tenant_id, aplicado_em; pk (importacao_id, numero))
    importacao.execucoes(job_id text, tenant_id, importacao_id, tentativa, status, iniciado_em, finalizado_em)
    importacao.erros_linha(id bigserial, tenant_id, importacao_id, linha, motivo)

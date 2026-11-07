@@ -8,7 +8,9 @@ Faça:
 2. services/notificacoes: worker BullMQ da fila "emails" que envia com nodemailer para o
    SMTP do Mailpit. Sem porta publicada, sem acesso ao schema orbita (não precisa de banco).
 3. Na API: o cadastro enfileira {tipo:"confirmar-cadastro", para, nome, link} DEPOIS do
-   commit. Se a fila estiver fora, o cadastro conclui mesmo assim e registra aviso no log
+   commit. O link é ${PORTAL_URL}/confirmar-email?token=... (PORTAL_URL no .env.example, padrão
+   http://localhost:8080; na VM, o endereço público — nunca "localhost" fixo no código). A tela
+   /confirmar-email do Portal chama GET /auth/confirmar (contrato, seção 4). Se a fila estiver fora, o cadastro conclui mesmo assim e registra aviso no log
    — e-mail não pode impedir o onboarding.
 4. Migração 002: orbita.usuarios.email_confirmado_em. GET /auth/confirmar?token=...
    (token assinado, válido 24 h) marca a data. O login NÃO exige confirmação.

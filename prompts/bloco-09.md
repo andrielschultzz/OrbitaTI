@@ -6,7 +6,8 @@ Faça:
 1. tests/carga/cq01.js (k6):
    - setup: cria pela API 1 tenant equipe (o barulhento) e 10 tenants individuais
      (observadores), cada observador com 50 contatos.
-   - cenário "barulhento": 3 importações de 500 linhas, uma a cada 20 s.
+   - cenário "barulhento": 3 importações de 500 linhas, uma a cada 20 s (CSV com cabeçalho, no
+     formato de docs/contrato-api.md, seção 7).
    - cenário "observadores": 10 VUs, cada um faz GET /contatos?busca=<termo> a cada 3 s,
      durante 2 minutos. Tag cenario=observadores.
    - thresholds: http_req_duration{cenario:observadores} p(95)<800 e max<2000;

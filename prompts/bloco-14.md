@@ -4,12 +4,15 @@ Objetivo: implementar as medidas de LGPD planejadas em docs/lgpd.md (ciclo de vi
 tenant: cancelar -> 30 dias de exportação -> exclusão).
 
 Faça:
-1. GET /conta/exportacao (somente papel admin): JSON com tenant, usuários (sem senha_hash),
+Formatos: docs/contrato-api.md, seções 4 e 9.
+
+1. GET /conta/exportacao (somente papel admin; outro papel -> 403 SEM_PERMISSAO): JSON com tenant, usuários (sem senha_hash),
    contatos, interações e importações do próprio tenant. Header Content-Disposition para
    download.
 2. POST /conta/cancelamento (somente admin): grava tenants.cancelado_em. A partir daí o
    login é recusado (a função buscar_credencial já filtra cancelados) — mas durante 30 dias
-   a exportação continua disponível por um link assinado enviado por e-mail.
+   a exportação continua disponível por um link assinado enviado por e-mail
+   (${PORTAL_URL}/api/conta/exportacao/arquivo?token=...).
 3. Exclusão: migração com a função orbita.tenants_para_excluir() SECURITY DEFINER, dona
    orbita_auth, que devolve SÓ os ids cancelados há mais de 30 dias. Um job agendado no
    BullMQ (diário) pega esses ids e, para cada um, usa withTenant(id) para apagar as linhas

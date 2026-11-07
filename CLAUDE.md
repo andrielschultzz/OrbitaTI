@@ -16,6 +16,8 @@ oralmente tudo o que for gerado: explique o porquê de cada decisão em linguage
 - `docs/adr/adr-003-processamento-assincrono.md` — fila, lotes de 100, pausa de 500 ms, quota
 - `docs/atributos.md` — cenários CQ-01 a CQ-05 (os testes medem estes números)
 - `docs/lgpd.md` — OrbitaTI é OPERADOR dos dados dos contatos
+- `docs/contrato-api.md` — contrato HTTP entre Portal e API (rotas, formatos, erros com `codigo`).
+  Mudou a API, muda o contrato no mesmo passo
 
 Se uma tarefa exigir contrariar um ADR, **pare e pergunte**. Não mude a decisão em silêncio.
 

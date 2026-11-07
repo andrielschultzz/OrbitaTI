@@ -52,3 +52,21 @@ documentação e o ADR-004 ficam para o Bloco 7, e este arquivo garante que nada
 - **Segredos:** nomes das variáveis de ambiente e o conteúdo do `.env.example`.
 - **Escopo:** refresh token de 7 dias e denylist em Redis (ADR-002), log de auditoria do 404 (CQ-02), exportação CSV/JSON e job de exclusão em 30 dias (`lgpd.md` marca estes dois para a Etapa 2).
 - **`docs/desenho-servicos.jpg`:** citado em três documentos, mas o arquivo não existe no repositório.
+
+---
+
+## 4. Decisões do contrato da API (07/11/2026)
+
+O contrato HTTP entre Portal e API foi escrito antes do código, em [`contrato-api.md`](contrato-api.md),
+para o Portal (bloco 13) poder ser construído em paralelo com o backend. As decisões novas estão na
+seção 11 dele e entram no ADR-004 no Bloco 7.
+
+| # | Decisão | Fecha qual lacuna |
+|---|---|---|
+| K1 | Formato único de erro `{erro, codigo}` | — |
+| K2 | Campos e tamanhos do contato; busca `ILIKE` com até 100 resultados (`{itens, limite}`) | "Contatos: quais campos existem, tamanhos…" (seção 3) |
+| K3 | CSV com cabeçalho obrigatório (`nome`, `email`, `telefone`, `empresa`, `observacao`), `,` ou `;`, BOM aceito; 422 para CSV vazio ou sem colunas | "Formato do CSV" (seção 3) |
+| K4 | Rotas `/interno/importacoes/:id/inicio` e `/falha`; `total_lotes` informado pelo worker | Bug de desenho: sem elas a importação podia nunca concluir |
+| K5 | "Esfriando" usa `COALESCE(ultima_interacao_em, criado_em)`; interação usa `GREATEST` | — |
+| K6 | `GET /planos/atual`; `PORTAL_URL` nos links de e-mail; porta 3000 só em `127.0.0.1`; `trustProxy` | Preparo para o Portal atrás de Nginx e para a VM do LARCC |
+
