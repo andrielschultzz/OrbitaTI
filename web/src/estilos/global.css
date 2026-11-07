@@ -7,9 +7,12 @@
  * Não use cores do Tailwind (blue-500 etc.) no Portal: os tokens são a única fonte.
  */
 @theme inline {
-  /* Breakpoints do projeto: 375 (celular), 768 (tablet), 1024 (desktop: barra lateral), 1440 */
+  /*
+   * Tamanhos do projeto: 375 (celular), 768 (tablet), 1024 (desktop: barra lateral), 1440.
+   * O celular de 375 px é o ESTILO BASE (mobile-first), sem prefixo. Não existe "sm:": com sm em
+   * 375 px, todo layout "lado a lado" valia no próprio celular e estourava a largura.
+   */
   --breakpoint-*: initial;
-  --breakpoint-sm: 23.4375rem;
   --breakpoint-md: 48rem;
   --breakpoint-lg: 64rem;
   --breakpoint-xl: 90rem;
@@ -231,4 +234,26 @@
   stroke: var(--superficie);
   stroke-width: 4px;
   stroke-linejoin: round;
+}
+
+/* Barra indeterminada ("Na fila…"): um trecho que corre da esquerda para a direita */
+@keyframes barra-correr {
+  from {
+    left: -33%;
+  }
+  to {
+    left: 100%;
+  }
+}
+.barra-indeterminada {
+  background: var(--primario-fundo);
+  animation: barra-correr 1.4s var(--curva) infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .barra-indeterminada {
+    animation: none;
+    left: 0;
+    width: 100%;
+    opacity: 0.5;
+  }
 }

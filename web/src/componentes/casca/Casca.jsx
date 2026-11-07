@@ -1,4 +1,5 @@
-import { NavLink, Link, Outlet } from 'react-router';
+import { Suspense } from 'react';
+import { NavLink, Link, Outlet, useLocation } from 'react-router';
 import { Plus, Upload, UserRound, UsersRound } from 'lucide-react';
 import { MarcaHorizontal } from '../marca/Marca.jsx';
 
@@ -15,6 +16,11 @@ const ITENS = [
 const NOVO_CONTATO = '/contatos?novo=1';
 
 export default function Casca() {
+  // O "+" só aparece onde tem relação com a tela (Contatos e Contato). Em Importar e Conta ele
+  // cobriria conteúdo sem motivo. No desktop o "Novo contato" fica sempre na barra lateral.
+  const { pathname } = useLocation();
+  const mostrarMais = pathname === '/contatos' || pathname.startsWith('/contatos/');
+
   return (
     <div className="min-h-dvh lg:grid lg:grid-cols-[16rem_1fr]">
       <a
@@ -25,7 +31,9 @@ export default function Casca() {
       </a>
 
       {/* Barra lateral (desktop) */}
-      <aside className="sticky top-0 hidden h-dvh flex-col gap-8 border-r border-borda-sutil bg-superficie/60 px-4 py-6 lg:flex">
+      {/* Invólucro com altura total (borda e fundo até o fim da página); o menu dentro fica fixo. */}
+      <div className="hidden border-r border-borda-sutil bg-superficie/60 lg:block">
+      <aside className="sticky top-0 flex h-dvh flex-col gap-8 px-4 py-6">
         <Link to="/contatos" className="px-2" aria-label="OrbitaTI, ir para Contatos">
           <MarcaHorizontal tamanho="sm" />
         </Link>
@@ -54,6 +62,7 @@ export default function Casca() {
           </ul>
         </nav>
       </aside>
+      </div>
 
       {/* Topo (celular) */}
       <header className="flex h-14 items-center px-4 lg:hidden">
@@ -67,10 +76,14 @@ export default function Casca() {
         tabIndex={-1}
         className="mx-auto w-full max-w-5xl px-4 pt-2 pb-[calc(6.5rem+env(safe-area-inset-bottom))] outline-none md:px-6 lg:px-10 lg:py-8"
       >
-        <Outlet />
+        {/* Suspense aqui dentro: trocar de tela não faz o menu piscar, só o conteúdo carrega. */}
+        <Suspense fallback={<div className="min-h-[60dvh]" aria-busy="true" />}>
+          <Outlet />
+        </Suspense>
       </main>
 
-      {/* Botão flutuante "+" (celular) */}
+      {/* Botão flutuante "+" (celular, só em Contatos e Contato) */}
+      {mostrarMais && (
       <Link
         to={NOVO_CONTATO}
         aria-label="Novo contato"
@@ -78,6 +91,7 @@ export default function Casca() {
       >
         <Plus aria-hidden="true" className="size-7" />
       </Link>
+      )}
 
       {/* Barra inferior (celular) */}
       <nav

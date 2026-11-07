@@ -116,7 +116,7 @@ export default function PaginaMarca() {
       </Secao>
 
       <Secao titulo="Cores">
-        <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+        <ul className="grid grid-cols-1 gap-3 md:grid-cols-3 lg:grid-cols-4">
           {CORES.map(([token, uso]) => (
             <li key={token} className="cartao flex items-center gap-3 p-3">
               <span
@@ -235,7 +235,7 @@ export default function PaginaMarca() {
               Pelo menos 8 caracteres.
             </p>
           </div>
-          <fieldset className="flex flex-col gap-1.5 md:col-span-2">
+          <fieldset className="flex min-w-0 flex-col gap-1.5 md:col-span-2">
             <legend className="mb-1.5 text-sm font-medium text-texto-secundario">Estágio</legend>
             <div className="grid grid-cols-4 gap-1 rounded-campo border border-borda-campo p-1">
               {ESTAGIOS.map(([valor, rotulo]) => (
