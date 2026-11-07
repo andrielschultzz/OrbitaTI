@@ -10,6 +10,11 @@ const apiAlvo = process.env.API_ALVO ?? 'http://localhost:3000';
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  test: {
+    // Só unitários e o simulador. Os E2E (e2e/) são do Playwright, não do Vitest.
+    include: ['src/**/*.test.js', 'simulador/**/*.test.js'],
+    environment: 'node',
+  },
   server: {
     port: 5173,
     proxy: {

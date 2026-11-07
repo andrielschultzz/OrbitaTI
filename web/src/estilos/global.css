@@ -7,10 +7,18 @@
  * Não use cores do Tailwind (blue-500 etc.) no Portal: os tokens são a única fonte.
  */
 @theme inline {
+  /* Breakpoints do projeto: 375 (celular), 768 (tablet), 1024 (desktop: barra lateral), 1440 */
+  --breakpoint-*: initial;
+  --breakpoint-sm: 23.4375rem;
+  --breakpoint-md: 48rem;
+  --breakpoint-lg: 64rem;
+  --breakpoint-xl: 90rem;
+
   --color-*: initial;
   --color-fundo: var(--fundo);
   --color-superficie: var(--superficie);
   --color-superficie-elevada: var(--superficie-elevada);
+  --color-superficie-ativa: var(--superficie-ativa);
   --color-texto: var(--texto);
   --color-texto-secundario: var(--texto-secundario);
   --color-texto-mudo: var(--texto-mudo);

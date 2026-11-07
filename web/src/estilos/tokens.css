@@ -16,6 +16,7 @@
   --fundo-brilho: #052645; /* brilho radial no topo da página */
   --superficie: #0b1b30;
   --superficie-elevada: #102840;
+  --superficie-ativa: #102840; /* item de menu ativo */
 
   /* Texto */
   --texto: #f1f7ff; /* 18,3:1 no fundo · 16,1:1 na superfície */
@@ -85,6 +86,7 @@
     --fundo-brilho: #e3eef9;
     --superficie: #ffffff;
     --superficie-elevada: #ffffff;
+    --superficie-ativa: #e3eef9;
     --texto: #0a1628; /* 17,0:1 */
     --texto-secundario: #46607a; /* 6,5:1 */
     --texto-mudo: #5b7089; /* 5,1:1 */
@@ -113,6 +115,7 @@
   --fundo-brilho: #e3eef9;
   --superficie: #ffffff;
   --superficie-elevada: #ffffff;
+  --superficie-ativa: #e3eef9;
   --texto: #0a1628;
   --texto-secundario: #46607a;
   --texto-mudo: #5b7089;

@@ -6,6 +6,8 @@
 import { createServer } from 'vite';
 import { chromium } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
+import { writeFile } from 'node:fs/promises';
+import { setTimeout as esperar } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 
 const raiz = fileURLToPath(new URL('..', import.meta.url));
@@ -16,6 +18,19 @@ const servidor = await createServer({ root: raiz, server: { port: 5199, strictPo
 await servidor.listen();
 const navegador = await chromium.launch();
 const errosConsole = [];
+
+// No Windows, antivírus ou a miniatura do Explorer às vezes seguram o PNG anterior por instantes.
+// Gera em memória e grava com algumas tentativas, em vez de falhar na primeira.
+async function gravar(arquivo, dados) {
+  for (let tentativa = 1; ; tentativa++) {
+    try {
+      return await writeFile(arquivo, dados);
+    } catch (erro) {
+      if (tentativa >= 5) throw erro;
+      await esperar(400 * tentativa);
+    }
+  }
+}
 try {
   for (const largura of [375, 1440]) {
     for (const tema of ['escuro', 'claro']) {
@@ -34,7 +49,7 @@ try {
         () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
       );
       const arquivo = `${saida}/marca-${largura}-${tema}.png`;
-      await pagina.screenshot({ path: arquivo, fullPage: true });
+      await gravar(arquivo, await pagina.screenshot({ fullPage: true }));
       console.log(`${arquivo}${rolagemHorizontal ? '  <-- ROLAGEM HORIZONTAL' : ''}`);
       await contexto.close();
     }

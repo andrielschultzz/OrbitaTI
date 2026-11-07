@@ -3,11 +3,17 @@ import simbolo from '../assets/marca/simbolo.svg';
 
 const LADO = 320;
 const GEO = { centro: LADO / 2, raioInterno: 72, raioExterno: 140 };
+// Cada rótulo num ângulo diferente para não empilhar (graus; -90 = topo, 0 = direita).
 const ANEIS = [
-  { dias: DIAS_ANEL_INTERNO, rotulo: '90 dias' },
-  { dias: 180, rotulo: '6 meses' },
-  { dias: DIAS_ANEL_EXTERNO, rotulo: '1 ano' },
+  { dias: DIAS_ANEL_INTERNO, rotulo: '90 dias', angulo: -90 },
+  { dias: 180, rotulo: '6 meses', angulo: -35 },
+  { dias: DIAS_ANEL_EXTERNO, rotulo: '1 ano', angulo: -90 },
 ];
+
+function pontoNoAnel(raio, graus) {
+  const a = (graus * Math.PI) / 180;
+  return { x: GEO.centro + raio * Math.cos(a), y: GEO.centro + raio * Math.sin(a) };
+}
 
 function primeiroNome(nome) {
   const p = nome.trim().split(/\s+/)[0] ?? '';
@@ -48,15 +54,16 @@ export default function MapaOrbita({ itens, aoAbrir, className = '' }) {
       </defs>
 
       {/* Anéis de referência (decorativos) */}
-      {ANEIS.map(({ dias, rotulo }) => {
+      {ANEIS.map(({ dias, rotulo, angulo }) => {
         const r = posicaoNoMapa(dias, 0, GEO).raio;
+        const p = pontoNoAnel(r, angulo);
         return (
           <g key={dias}>
             <circle cx={GEO.centro} cy={GEO.centro} r={r} fill="none" stroke="var(--borda-sutil)" strokeWidth="1.5" />
             <text
               className="mapa-orbita-rotulo"
-              x={GEO.centro}
-              y={GEO.centro - r - 5}
+              x={p.x}
+              y={p.y + 4}
               textAnchor="middle"
               fontSize="11"
               fill="var(--texto-mudo)"
@@ -83,6 +90,17 @@ export default function MapaOrbita({ itens, aoAbrir, className = '' }) {
       {/* Você no centro */}
       <circle cx={GEO.centro} cy={GEO.centro} r="58" fill="url(#mapa-halo)" />
       <image href={simbolo} x={GEO.centro - 42} y={GEO.centro - 42} width="84" height="84" />
+      <text
+        className="mapa-orbita-rotulo"
+        x={GEO.centro}
+        y={GEO.centro + 46}
+        textAnchor="middle"
+        fontSize="12"
+        fontWeight="700"
+        fill="var(--primario)"
+      >
+        você
+      </text>
 
       {/* Contatos frios */}
       {itens.map((c, i) => {

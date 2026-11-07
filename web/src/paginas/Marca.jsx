@@ -275,20 +275,20 @@ export default function PaginaMarca() {
             </div>
             <p className="text-sm text-texto-mudo">Há 412 dias sem contato · Proposta</p>
             <div className="flex gap-2">
-              <a href="tel:+5554999990000" className="botao botao-secundario flex-1 px-3" aria-label="Ligar para João Servidor">
-                <Phone aria-hidden="true" className="size-5" /> <span className="hidden sm:inline">Ligar</span>
+              <a href="tel:+5554999990000" className="botao botao-secundario min-h-14 flex-1 flex-col gap-0.5 px-2 py-1.5 text-sm" aria-label="Ligar para João Servidor">
+                <Phone aria-hidden="true" className="size-5" /> <span>Ligar</span>
               </a>
               <a
                 href="https://wa.me/5554999990000"
-                className="botao botao-secundario flex-1 px-3"
+                className="botao botao-secundario min-h-14 flex-1 flex-col gap-0.5 px-2 py-1.5 text-sm"
                 aria-label="WhatsApp de João Servidor"
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                <MessageCircle aria-hidden="true" className="size-5" /> <span className="hidden sm:inline">WhatsApp</span>
+                <MessageCircle aria-hidden="true" className="size-5" /> <span>WhatsApp</span>
               </a>
-              <a href="mailto:joao@exemplo.com.br" className="botao botao-secundario flex-1 px-3" aria-label="E-mail para João Servidor">
-                <Mail aria-hidden="true" className="size-5" /> <span className="hidden sm:inline">E-mail</span>
+              <a href="mailto:joao@exemplo.com.br" className="botao botao-secundario min-h-14 flex-1 flex-col gap-0.5 px-2 py-1.5 text-sm" aria-label="E-mail para João Servidor">
+                <Mail aria-hidden="true" className="size-5" /> <span>E-mail</span>
               </a>
             </div>
           </article>

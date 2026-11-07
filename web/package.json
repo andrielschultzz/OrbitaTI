@@ -9,8 +9,11 @@
   },
   "scripts": {
     "dev": "vite",
+    "dev:sim": "node scripts/dev-sim.js",
+    "simulador": "node simulador/servidor.js",
     "build": "vite build",
     "preview": "vite preview",
+    "test": "vitest run",
     "icones": "node scripts/gerar-icones.js",
     "capturas:marca": "node scripts/capturar-marca.js"
   },
@@ -26,7 +29,9 @@
     "@playwright/test": "1.65.0",
     "@tailwindcss/vite": "4.3.5",
     "@vitejs/plugin-react": "6.2.1",
+    "fastify": "5.12.8",
     "tailwindcss": "4.3.5",
-    "vite": "8.3.6"
+    "vite": "8.3.6",
+    "vitest": "5.1.0"
   }
 }
