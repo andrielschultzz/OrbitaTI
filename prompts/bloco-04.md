@@ -12,8 +12,8 @@ docs/servicos-rascunho.md e o diagrama de sequência da importação que segue a
   -> para cada lote: POST /interno/importacoes/:id/lotes com token de serviço -> espera 500 ms.
 
 Faça na API:
-1. src/planos.js: limites por plano (linhas por importação 100 | 5000; importações
-   simultâneas 2 | 5; usuários 1 | 10). É a única fonte desses números.
+1. src/planos.js: nome, preço mensal em centavos (4900 | 24900) e limites por plano (linhas por
+   importação 100 | 5000; importações simultâneas 2 | 5; usuários 1 | 10). É a única fonte desses números.
 2. POST /importacoes com corpo text/csv (parser de content-type, bodyLimit 1 MB -> 413):
    lê só o cabeçalho e conta as linhas de dados (sem as colunas nome e email -> 422
    CSV_SEM_COLUNAS; nenhuma linha -> 422 CSV_VAZIO; acima do plano -> 422 LINHAS_ACIMA_DO_PLANO),
@@ -39,8 +39,11 @@ Faça na API:
     ficaria processando. Nos três casos a importação nunca concluiria e o Portal ficaria esperando.
     inicio com total_lotes 0 já marca concluida; repetir inicio não muda nada; concluida e
     falhou nunca voltam atrás.
-5b. GET /planos/atual (contrato, seção 7): limites do plano do token lidos do planos.js, para o
-    Portal mostrar os limites sem duplicar números.
+5b. GET /planos (contrato, seção 7): rota PÚBLICA, sem token e sem rate limit, que lista os planos
+    com nome, preco_mensal_centavos e limites, tudo lido do planos.js (tamanho máximo do CSV vem do
+    bodyLimit). O cadastro do Portal mostra os planos antes de existir token; depois do login o Portal
+    escolhe o plano atual pelo claim `plano`. Sem dado de tenant: acrescente /planos às rotas fora da
+    tabela do T-ISO-15 (junto com /auth/* e /saude), senão o teste de isolamento acusa a rota.
 
 Faça no serviço services/importacao:
 6. Worker BullMQ (concurrency 2, attempts 3, backoff exponencial), DATABASE_URL_IMPORTACAO,

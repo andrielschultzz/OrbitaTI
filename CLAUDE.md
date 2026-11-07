@@ -98,7 +98,8 @@ API local: http://localhost:3000 · no kind: http://localhost:30080
 | CQ-01 | busca de outros tenants p95 < 800 ms durante importação de 500+ |
 | CQ-02 | 100% das tentativas cruzadas → 404 |
 
-Planos e limites ficam em um só lugar: `services/api-contatos/src/planos.js` (é a "feature flag por plano").
+Planos, preços e limites ficam em um só lugar: `services/api-contatos/src/planos.js` (é a "feature flag por plano"),
+exposto pela rota pública `GET /planos` (sem token e sem rate limit).
 
 ## Documentos da Etapa 1 desatualizados
 

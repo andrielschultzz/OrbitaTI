@@ -100,7 +100,7 @@ A suíte é uma **tabela de rotas** (método, caminho) percorrida em laço: rota
 | T-ISO-12 | Token de serviço não serve em rota de usuário | Regra 7 (dois segredos) | — | Token de serviço válido em `GET /contatos` | 401 | Integração | Vitest | 4 | planejado |
 | T-ISO-13 | Nenhuma rota aceita `tenant_id` | Regra 1; ADR-002 | — | `buildApp()` + hook `onRoute`: procurar "tenant" no caminho, na querystring e no schema do corpo | Nenhuma ocorrência; o teste falha se aparecer | Unitário | Vitest | 3 | planejado |
 | T-ISO-14 | A regra acima bloqueia a build | CQ-02 ("build falha se a suíte falhar") | CI ativo | Branch descartável com rota `/tenants/:tenant_id/contatos`; push | Workflow vermelho; o branch é apagado | Integração contínua | GitHub Actions | 8 | planejado |
-| T-ISO-15 | Toda rota com dado de tenant está na tabela da suíte | CQ-02 ("100% das rotas cobertas") | — | Comparar as rotas registradas no `onRoute` (menos `/auth/*`, `/saude`) com a tabela de `isolamento.test.js` | Rota fora da tabela → falha. **Proposta nova** (seção 5) | Unitário | Vitest | 3 | planejado |
+| T-ISO-15 | Toda rota com dado de tenant está na tabela da suíte | CQ-02 ("100% das rotas cobertas") | — | Comparar as rotas registradas no `onRoute` (menos `/auth/*`, `/saude`, `/planos`) com a tabela de `isolamento.test.js` | Rota fora da tabela → falha. **Proposta nova** (seção 5) | Unitário | Vitest | 3 | planejado |
 | T-ISO-16 | Interações de contato de outro tenant | CQ-02 | contato de B | A faz `GET` e `POST /contatos/:idB/interacoes` | 404 nos dois; nenhuma interação criada | Integração | Vitest | 12 | planejado |
 | T-ISO-17 | "Esfriando" não mostra contatos de outro tenant | CQ-02 | contatos frios em B | A faz `GET /contatos/esfriando` | Nenhum id de B | Integração | Vitest | 12 | planejado |
 | T-ISO-18 | Exportação só traz o próprio tenant | CQ-02; LGPD | dados em A e B | A (admin) faz `GET /conta/exportacao` | Nenhum id, e-mail ou nome de B no JSON | Integração | Vitest | 14 | planejado |
@@ -186,7 +186,7 @@ casos são **ensaios** executados pelo script, com o resultado registrado.
 | T-RL-02 | Limite calculado pelo plano | `planos.js` | — | Ler o limite de cada plano | Individual 60 × 1 = 60; equipe 60 × 10 = 600 req/min | Unitário | Vitest | 5 | planejado |
 | T-RL-03 | Força bruta no login | Números do projeto | usuário de A | 11 logins com o mesmo IP + e-mail; depois 1 com outro e-mail | 11ª → 429, mesmo com a senha certa; o outro e-mail → resposta normal (a chave é IP + e-mail) | Integração | Vitest | 5 | planejado |
 | T-RL-04 | Limite de cadastro por IP | Números do projeto | `buildApp()` com limite reduzido (3) | 4 cadastros seguidos com `app.inject()` | 4º → 429. Unitário para não bloquear o IP da suíte por 1 min | Unitário | Vitest | 5 | planejado |
-| T-RL-05 | `/saude` e `/interno` ficam fora do limite | Bloco 5, item 2 | — | 70 `GET /saude` em menos de 1 min | Nenhum 429 | Integração | Vitest | 5 | planejado |
+| T-RL-05 | `/saude`, `/planos` e `/interno` ficam fora do limite | Bloco 5, item 2 | — | 70 `GET /saude` e 70 `GET /planos` em menos de 1 min | Nenhum 429 | Integração | Vitest | 5 | planejado |
 
 ### 2.8 Observabilidade — bloco 5
 

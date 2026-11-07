@@ -8,6 +8,9 @@ Contexto: CLAUDE.md (regras de multi-tenancy 2 a 6) e docs/adr/adr-001-tenancy.m
 Faça:
 1. package.json na raiz com npm workspaces ("services/*"), "type": "module", Node >= 22,
    Vitest como devDependency e o script "test": "vitest run".
+   Crie também vitest.config.js na raiz com test.exclude incluindo 'web/**' (além dos padrões
+   node_modules/**): o Portal (web/) tem pacote e testes próprios (Vitest e Playwright), e sem o
+   exclude o npm test da raiz pegaria os testes do Playwright e quebraria.
 2. .env.example com: POSTGRES_PASSWORD, DB_SENHA_MIGRADOR, DB_SENHA_API, DB_SENHA_IMPORTACAO,
    DATABASE_URL_MIGRADOR, DATABASE_URL_API, DATABASE_URL_IMPORTACAO, REDIS_URL, JWT_SEGREDO,
    JWT_SERVICO_SEGREDO, API_URL_INTERNA. Banco "orbitati", host "postgres".
