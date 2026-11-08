@@ -1,0 +1,21 @@
+{
+  "name": "@orbitati/api-contatos",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "API de Contatos do OrbitaTI: porta de entrada (auth, contatos; importações e /interno a partir do bloco 4).",
+  "main": "src/server.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "@fastify/jwt": "10.2.7",
+    "@node-rs/argon2": "2.2.2",
+    "fastify": "5.12.8",
+    "fastify-plugin": "6.0.1",
+    "pg": "8.23.1"
+  }
+}
