@@ -68,5 +68,5 @@ seção 11 dele e entram no ADR-004 no Bloco 7.
 | K3 | CSV com cabeçalho obrigatório (`nome`, `email`, `telefone`, `empresa`, `observacao`), `,` ou `;`, BOM aceito; 422 para CSV vazio ou sem colunas | "Formato do CSV" (seção 3) |
 | K4 | Rotas `/interno/importacoes/:id/inicio` e `/falha`; `total_lotes` informado pelo worker | Bug de desenho: sem elas a importação podia nunca concluir |
 | K5 | "Esfriando" usa `COALESCE(ultima_interacao_em, criado_em)`; interação usa `GREATEST` | — |
-| K6 | `GET /planos/atual`; `PORTAL_URL` nos links de e-mail; porta 3000 só em `127.0.0.1`; `trustProxy` | Preparo para o Portal atrás de Nginx e para a VM do LARCC |
+| K6 | `GET /planos` pública, com preço em centavos no `planos.js` e sem rate limit; `PORTAL_URL` nos links de e-mail; porta 3000 só em `127.0.0.1`; `trustProxy` | Preparo para o Portal atrás de Nginx e para a VM do LARCC |
 

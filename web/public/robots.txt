@@ -1,0 +1,4 @@
+# Portal do OrbitaTI. A API e as telas internas exigem login; não há o que indexar nelas.
+User-agent: *
+Disallow: /api/
+Allow: /

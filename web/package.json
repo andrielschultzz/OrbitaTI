@@ -1,0 +1,40 @@
+{
+  "name": "orbitati-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Portal Web do OrbitaTI (SPA servida pelo nginx). Pacote independente, fora dos workspaces da raiz.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "vite",
+    "dev:sim": "node scripts/dev-sim.js",
+    "simulador": "node simulador/servidor.js",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "icones": "node scripts/gerar-icones.js",
+    "capturas:marca": "node scripts/capturar-marca.js",
+    "test:e2e": "playwright test --project=e2e",
+    "capturas": "playwright test --project=capturas",
+    "lighthouse": "npx --yes -p lighthouse@12.8.2 -p puppeteer-core@24.43.1 node scripts/medir-lighthouse.mjs"
+  },
+  "dependencies": {
+    "@fontsource/inter": "5.3.0",
+    "@fontsource/montserrat": "5.3.0",
+    "lucide-react": "1.70.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "react-router": "8.5.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.0",
+    "@tailwindcss/vite": "4.3.5",
+    "@vitejs/plugin-react": "6.2.1",
+    "fastify": "5.12.8",
+    "tailwindcss": "4.3.5",
+    "vite": "8.3.6",
+    "vitest": "5.1.0"
+  }
+}

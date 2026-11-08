@@ -126,7 +126,7 @@
    - **Token:** injeta `Authorization: Bearer`. O token nunca vai para URL nem para log.
    - **Trava do ADR-002 no cliente:** em desenvolvimento, lança erro se algum caminho, query ou corpo tiver uma chave contendo "tenant".
    - **Erros:** decide pelo `codigo` do formato de erro do contrato, nunca comparando texto. Usa o `erro` como mensagem, a não ser que a tela tenha um texto melhor (tabela da Fase 3).
-   - **Sessão expirada:** `NAO_AUTENTICADO` limpa a sessão e leva para `/entrar?sessao=expirada`, guardando a rota atual para voltar depois do login.
+   - **Sessão expirada:** `NAO_AUTENTICADO` limpa a sessão e leva para `/entrar?sessao=expirada&voltar=<rota atual>`. A rota vai na URL, não no storage (só o token fica no `sessionStorage`). `voltar` só é aceito se começar com "/" e não com "//"; senão vai para `/contatos`.
    - **Rastreio:** lê o `x-request-id` da resposta e mostra no toast de erro inesperado ("código: …"), para eu achar a requisição no log.
    - **Cancelamento:** usa `AbortController`, e uma busca nova cancela a anterior.
 2. **Sessão.**
@@ -158,7 +158,7 @@
 **Tom das mensagens:** português simples, como quem fala com o Marcelo. As palavras "tenant", "JWT" e "payload" nunca aparecem na tela. Use a metáfora da órbita com parcimônia: no "Saindo de órbita" e no mapa. No resto, linguagem direta.
 
 1. **Entrar, Criar conta e Confirmar e-mail**
-   - **Cadastro:** campos empresa, nome, e-mail e senha (com mostrar/ocultar; mínimo de 8 caracteres, conforme o contrato). O plano aparece em cartões selecionáveis, Individual (R$ 49) e Equipe (R$ 249), com o que cada um inclui; confira os textos em `docs/01-visao-produto.md`. Use o `autocomplete` certo em cada campo: `organization`, `name`, `email`, `new-password` e `current-password`.
+   - **Cadastro:** campos empresa, nome, e-mail e senha (com mostrar/ocultar; mínimo de 8 caracteres, conforme o contrato). O plano aparece em cartões selecionáveis, montados a partir de `GET /planos` (pública): nome, preço, usuários, linhas por importação e importações simultâneas. Nada de recurso que ainda não existe (propostas, webhooks, histórico). Use o `autocomplete` certo em cada campo: `organization`, `name`, `email`, `new-password` e `current-password`.
    - **Login:** um só erro, "E-mail ou senha incorretos." A API não revela qual campo errou, e o Portal também não.
    - **Depois do cadastro,** vai direto para Contatos, com o estado vazio guiando o primeiro cadastro. A meta do produto é o primeiro contato em menos de 5 min.
    - **`/confirmar-email?token=`:** chama `GET /auth/confirmar` e mostra "E-mail confirmado" ou "Este link é inválido ou venceu". É a tela para onde aponta o link do e-mail do bloco 10.
@@ -187,7 +187,7 @@
    - **`NAO_ENCONTRADO`:** "Não encontramos esse contato." Nunca sugira que ele existe em outra conta (CQ-02).
 4. **Importar CSV**
    - **Envio do arquivo:** área de soltar arquivo mais um botão; no celular, abre o seletor de arquivos.
-   - **Modelo e limites:** link "baixar modelo" para `web/public/modelo-contatos.csv`, com o cabeçalho do contrato e separador ";". Os limites do plano vêm de `GET /planos/atual`; nenhum número fixo no Portal.
+   - **Modelo e limites:** link "baixar modelo" para `web/public/modelo-contatos.csv`, com o cabeçalho do contrato e separador ";". Os limites do plano vêm de `GET /planos` (o plano atual é escolhido pelo claim `plano` do token); nenhum número fixo no Portal.
    - **Requisição:** `POST /api/importacoes` com `Content-Type: text/csv` e o arquivo como corpo.
    - **Progresso:**
      - enquanto está `na_fila`, mostre "Na fila…" com indicador indeterminado (`total_lotes` ainda é `null`);
@@ -196,8 +196,8 @@
      Pare de consultar ao sair da tela, pause com a aba oculta (`visibilitychange`) e respeite o `Retry-After` de um 429. Por quê: no plano Individual o limite é de 60 req/min, e só o polling de 2 s já gasta 30 por minuto.
    - **Resultado:** "{total_linhas − linhas_invalidas} contatos importados, {linhas_invalidas} linhas com erro", com um link para os contatos. O detalhe de cada linha não aparece: ele fica no schema `importacao`, que a API não lê (regra 10).
 5. **Conta**
-   - Sempre mostra o plano atual, os limites (de `GET /planos/atual`), o alternador de tema e o botão Sair.
-   - Se o bloco 14 já existir, mostra também, só para o papel admin: "Exportar meus dados" (download) e "Cancelar conta", com confirmação digitando o nome da empresa. Depois de cancelar, sai da conta na hora.
+   - Sempre mostra o plano atual, os limites (de `GET /planos`, escolhido pelo claim `plano`), o alternador de tema e o botão Sair (fora do bloco de preferências). "Requisições por minuto" não aparece: é proteção técnica, não vantagem do plano.
+   - Só para o papel admin: "Exportar meus dados" (download) e "Cancelar conta", com confirmação digitando CANCELAR. (Mudança decidida na Fase 3: o texto original pedia o nome da empresa, mas o Portal não o conhece; ele não está no token e nenhuma rota do contrato o devolve. Digitar uma palavra fixa é o padrão de GitHub e Vercel e cumpre o objetivo: evitar o clique por engano.) Depois de cancelar, sai da conta na hora. O simulador implementa as duas rotas. Se a API real responder 404 nelas, mostre "Essa função ainda não está disponível." (pelo contrato essas rotas nunca devolvem 404, então 404 ali só significa que o bloco 14 ainda não existe). Nada de flag nem requisição de teste.
 
 **Mensagens por `codigo`.** Use o `erro` da API, menos onde esta tabela pede um texto específico da tela.
 
@@ -337,7 +337,7 @@
 ## Não faça
 
 - Nada que envie `tenant_id`, em lugar nenhum.
-- Nenhum número de plano fixo no Portal (eles vêm de `GET /planos/atual`).
+- Nenhum número de plano fixo no Portal (eles vêm de `GET /planos`).
 - Nenhuma rota, campo ou regra no simulador que não esteja no contrato.
 - Nenhuma dependência de CDN ou serviço externo em tempo de execução.
 - Nenhuma mudança em `services/` ou `db/` neste bloco: o backend segue os blocos 2, 4, 5, 10, 12 e 14. Se faltar algo, pare e me diga.

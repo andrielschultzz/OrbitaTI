@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="description" content="OrbitaTI: CRM enxuto para profissionais de TI autônomos e pequenas consultorias." />
+    <meta name="theme-color" content="#020A1F" />
+    <title>OrbitaTI</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <!-- Aplica o tema escolhido antes da pintura (evita piscar). Arquivo externo, não inline,
+         porque a CSP do nginx (Fase 4) não permite script inline. -->
+    <script src="/tema-inicial.js"></script>
+  </head>
+  <body>
+    <noscript>O OrbitaTI precisa de JavaScript ligado.</noscript>
+    <div id="raiz"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

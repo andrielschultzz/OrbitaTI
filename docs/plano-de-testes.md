@@ -20,6 +20,7 @@ Por isso o plano começa pelo isolamento e só depois mede desempenho, disponibi
 | **Unitário** | Regras que não precisam de banco nem de rede (ex.: nenhuma rota declara `tenant_id`) | Vitest + `buildApp()` com `app.inject()` | `services/*/test/` |
 | **Integração** | Comportamento real contra a stack do Docker Compose: RLS, API, fila e worker | Vitest (`npm test`), cliente `pg` e `fetch` | `tests/` |
 | **Carga** | Cenário CQ-01 (vizinho barulhento) com números de latência | k6 (serviço `k6` do Compose, profile `carga`) | `tests/carga/` |
+| **E2E do Portal** | O Portal Web visto pelo usuário: fluxo, sessão, isolamento na tela, erros, nginx, acessibilidade, layout | Playwright (`npm run test:e2e` e `npm run capturas` em `web/`) contra `E2E_URL` | `web/e2e/` |
 | **Ensaio operacional** | O que exige derrubar peças ou esperar muito: degradação, restauração, sonda | Scripts PowerShell, cronometrados, com relatório | `scripts/` e `docs/ensaios/` |
 | **Integração contínua** | A suíte inteira roda a cada push e a build vermelha bloqueia o merge (CQ-02) | GitHub Actions (`.github/workflows/ci.yml`) | a partir do bloco 8 |
 
@@ -100,7 +101,7 @@ A suíte é uma **tabela de rotas** (método, caminho) percorrida em laço: rota
 | T-ISO-12 | Token de serviço não serve em rota de usuário | Regra 7 (dois segredos) | — | Token de serviço válido em `GET /contatos` | 401 | Integração | Vitest | 4 | planejado |
 | T-ISO-13 | Nenhuma rota aceita `tenant_id` | Regra 1; ADR-002 | — | `buildApp()` + hook `onRoute`: procurar "tenant" no caminho, na querystring e no schema do corpo | Nenhuma ocorrência; o teste falha se aparecer | Unitário | Vitest | 3 | planejado |
 | T-ISO-14 | A regra acima bloqueia a build | CQ-02 ("build falha se a suíte falhar") | CI ativo | Branch descartável com rota `/tenants/:tenant_id/contatos`; push | Workflow vermelho; o branch é apagado | Integração contínua | GitHub Actions | 8 | planejado |
-| T-ISO-15 | Toda rota com dado de tenant está na tabela da suíte | CQ-02 ("100% das rotas cobertas") | — | Comparar as rotas registradas no `onRoute` (menos `/auth/*`, `/saude`) com a tabela de `isolamento.test.js` | Rota fora da tabela → falha. **Proposta nova** (seção 5) | Unitário | Vitest | 3 | planejado |
+| T-ISO-15 | Toda rota com dado de tenant está na tabela da suíte | CQ-02 ("100% das rotas cobertas") | — | Comparar as rotas registradas no `onRoute` (menos `/auth/*`, `/saude`, `/planos`) com a tabela de `isolamento.test.js` | Rota fora da tabela → falha. **Proposta nova** (seção 5) | Unitário | Vitest | 3 | planejado |
 | T-ISO-16 | Interações de contato de outro tenant | CQ-02 | contato de B | A faz `GET` e `POST /contatos/:idB/interacoes` | 404 nos dois; nenhuma interação criada | Integração | Vitest | 12 | planejado |
 | T-ISO-17 | "Esfriando" não mostra contatos de outro tenant | CQ-02 | contatos frios em B | A faz `GET /contatos/esfriando` | Nenhum id de B | Integração | Vitest | 12 | planejado |
 | T-ISO-18 | Exportação só traz o próprio tenant | CQ-02; LGPD | dados em A e B | A (admin) faz `GET /conta/exportacao` | Nenhum id, e-mail ou nome de B no JSON | Integração | Vitest | 14 | planejado |
@@ -186,7 +187,7 @@ casos são **ensaios** executados pelo script, com o resultado registrado.
 | T-RL-02 | Limite calculado pelo plano | `planos.js` | — | Ler o limite de cada plano | Individual 60 × 1 = 60; equipe 60 × 10 = 600 req/min | Unitário | Vitest | 5 | planejado |
 | T-RL-03 | Força bruta no login | Números do projeto | usuário de A | 11 logins com o mesmo IP + e-mail; depois 1 com outro e-mail | 11ª → 429, mesmo com a senha certa; o outro e-mail → resposta normal (a chave é IP + e-mail) | Integração | Vitest | 5 | planejado |
 | T-RL-04 | Limite de cadastro por IP | Números do projeto | `buildApp()` com limite reduzido (3) | 4 cadastros seguidos com `app.inject()` | 4º → 429. Unitário para não bloquear o IP da suíte por 1 min | Unitário | Vitest | 5 | planejado |
-| T-RL-05 | `/saude` e `/interno` ficam fora do limite | Bloco 5, item 2 | — | 70 `GET /saude` em menos de 1 min | Nenhum 429 | Integração | Vitest | 5 | planejado |
+| T-RL-05 | `/saude`, `/planos` e `/interno` ficam fora do limite | Bloco 5, item 2 | — | 70 `GET /saude` e 70 `GET /planos` em menos de 1 min | Nenhum 429 | Integração | Vitest | 5 | planejado |
 
 ### 2.8 Observabilidade — bloco 5
 
@@ -218,7 +219,15 @@ se falhar, o relatório diz que falhou e propõe a causa (regra do bloco 9).
 | T-PROD-01 | Interação atualiza o contato | Bloco 12, item 2 | contato de A | `POST /contatos/:id/interacoes` | 201; `ultima_interacao_em` atualizado na mesma transação | Integração | Vitest | 12 | planejado |
 | T-PROD-02 | Regra do "esfriando" | Bloco 12, item 3 | contatos com interação há 100 dias, há 10 dias, sem interação e um `perdido` | `GET /contatos/esfriando?dias=90` | Vêm o de 100 dias e o sem interação, do mais frio ao mais recente; o de 10 dias e o `perdido` não vêm | Integração | Vitest | 12 | planejado |
 | T-PROD-03 | Valores fora do domínio | Bloco 12, item 1 | — | Interação com `tipo` inválido; `PATCH` com `estagio` inválido | 400 nos dois | Integração | Vitest | 12 | planejado |
-| T-WEB-01 | O Portal nunca envia `tenant_id` e trata 401 | Regra 1; bloco 13 | Portal no ar | Usar todas as telas com a aba Rede do navegador aberta; expirar o token | Nenhuma requisição com `tenant_id`; 401 leva ao login | Ensaio manual | Navegador (F12) | 13 | planejado |
+| T-WEB-01 | O Portal nunca envia `tenant_id` | Regra 1; ADR-002; bloco 13 | Portal no ar | Fluxo inteiro (cadastro, contato, interação, importação) com toda requisição do navegador interceptada | Nenhuma URL, query ou corpo contém "tenant" (o tenant só vai no token, no cabeçalho `Authorization`) | E2E | Playwright, `web/e2e/fluxo.spec.js` | 13 | automatizado (simulador); falta na stack real |
+| T-WEB-02 | Fluxo principal no celular (375 px) | Bloco 13, Fase 5; "cadastro em 30 s" | Portal no ar | Cadastrar empresa → contato só com nome (Enter) → interação → importar CSV de 50 linhas com 2 inválidas | Contato aparece sem recarregar em < 30 s; "Último contato hoje" vem da resposta; "48 contatos importados, 2 linhas com erro"; nenhum erro no console (inclui violação de CSP) | E2E | Playwright, `web/e2e/fluxo.spec.js` | 13 | automatizado (simulador); falta na stack real |
+| T-WEB-03 | Sessão vencida ou adulterada | ADR-002 (token de 15 min); bloco 13 | empresa nova | Abrir `/contatos` com token de assinatura inválida; com token vencido; sem token | Adulterado: API 401 → `/entrar` com "Sua sessão expirou"; vencido: o mesmo, sem nem chamar a API; token apagado da aba; `?voltar=` guarda a tela; sem token: login sem o aviso | E2E | Playwright, `web/e2e/sessao.spec.js` | 13 | automatizado (simulador); falta na stack real |
+| T-WEB-04 | Isolamento visto pela tela | CQ-02; regra 5 | contato e importação de A | B abre `/contatos/<id de A>`, `/importar/<id de A>` e a própria lista | "Não encontramos esse contato." / "...essa importação." (API 404, nunca 403); nada de A aparece | E2E | Playwright, `web/e2e/isolamento.spec.js` | 13 | automatizado (simulador); falta na stack real |
+| T-WEB-05 | Erros de importação na tela | Bloco 13, tabela da Fase 3 | empresa nova | Arquivo > 1 MB; CSV sem coluna `email`; fila fora (503 `FILA_INDISPONIVEL` simulado no navegador) | Mensagem da tabela em cada caso, com foco no aviso; > 1 MB nem é enviado; fila fora não derruba o resto do Portal | E2E | Playwright, `web/e2e/importacao-erros.spec.js` | 13 | automatizado (simulador); fila fora real fica para a Fase 6 |
+| T-WEB-06 | nginx do Portal | Bloco 13, Fase 4 | imagem `orbitati/web` no ar | `/healthz`; `/api/saude`; `/api/interno` e variações (`//`, `%69`, `../`); `x-request-id`; cabeçalhos; cache; CSV de 1,5 MB pelo proxy | 200; proxy remove `/api`; interno → 404; id repassado ou gerado; CSP, nosniff, no-referrer, sem HSTS; assets 1 ano imutável com gzip; 413 `ARQUIVO_GRANDE` vem da API em JSON | E2E | Playwright, `web/e2e/nginx.spec.js` e `importacao-erros.spec.js` | 13 | automatizado (simulador); falta na stack real |
+| T-WEB-07 | Acessibilidade no celular | WCAG 2.5.8 e 2.4.11; checklist da skill | empresa com 12 contatos | Medir alvos de toque em 7 telas (375 px); Tab por Contatos, Contato e Conta | Todo alvo ≥ 44 × 44 px; nenhum foco atrás da barra inferior ou do botão "+" | E2E | Playwright, `web/e2e/acessibilidade.spec.js` | 13 | automatizado (simulador) |
+| T-WEB-08 | Layout em 4 larguras × 2 temas | Bloco 13, Fase 5 | conta de demonstração (seed) | Capturar 8 telas em 375, 768, 1024 e 1440 px, claro e escuro | Nenhuma rolagem horizontal, nenhum texto vazando da caixa; 64 capturas revisadas a olho | E2E + revisão | Playwright, `web/e2e/capturas.spec.js` | 13 | automatizado (simulador); na stack real depende do seed do bloco 3 |
+| T-WEB-09 | Desempenho e acessibilidade (Lighthouse mobile) | CQ-01 (4G no orçamento); bloco 13 | Portal no ar | `npm run lighthouse` em `/entrar` e `/contatos`, claro e escuro, cache vazio | Desempenho ≥ 90, Acessibilidade ≥ 95, Boas práticas ≥ 95, JS inicial ≤ 170 KB gzip | Ensaio | `web/scripts/medir-lighthouse.mjs`; [relatório](ensaios/portal-lighthouse-2026-11-07.md) | 13 | feito em 07/11/2026 (simulador): 93–98 / 100 / 100, 103–112 KB |
 | T-LGPD-01 | Exportação só para admin e sem senha | LGPD (exportação) | admin e consultor em A | `GET /conta/exportacao` com cada um | Admin → 200 sem `senha_hash`; consultor → 403 (autorização dentro do próprio tenant, por isso 403 e não 404) | Integração | Vitest | 14 | planejado |
 | T-LGPD-02 | Tenant cancelado não entra | LGPD (cancelar) | A cancelado | Login de um usuário de A | 401 | Integração | Vitest | 14 | planejado |
 | T-LGPD-03 | Exclusão após 30 dias, só de quem deve | LGPD (excluir); R4 | Tenants cancelados há 31 e há 29 dias e um ativo (data simulada) | Rodar o job de exclusão | O de 31 dias some de todas as tabelas; o de 29 e o ativo ficam intactos | Integração | Vitest | 14 | planejado |
@@ -232,7 +241,7 @@ se falhar, o relatório diz que falhou e propõe a causa (regra do bloco 9).
 | Cenário | Medida | Testes |
 |---|---|---|
 | CQ-01 — vizinho barulhento | p95 < 800 ms; p100 < 2 s; 0 erros 5xx | T-CQ01-01, T-CQ01-02; apoio: T-IMP-13 (pausa), T-IMP-08 (simultâneas), T-RL-01 |
-| CQ-02 — isolamento | 100% das tentativas → 404; 100% das rotas; build falha | T-ISO-01 a T-ISO-18, T-IMP-02, T-RLS-01 a T-RLS-16 |
+| CQ-02 — isolamento | 100% das tentativas → 404; 100% das rotas; build falha | T-ISO-01 a T-ISO-18, T-IMP-02, T-RLS-01 a T-RLS-16; pela tela: T-WEB-04 |
 | CQ-03 — onboarding | p90 < 45 s; 0 ações manuais | T-CQ03-01, T-AUTH-01, T-RES-06 |
 | CQ-04 — disponibilidade | 99,5% em horário comercial; ≤ 79 min/mês | T-CQ04-01, T-CQ04-02; apoio: T-RES-01, T-RES-04 |
 | CQ-05 — recuperação | RPO ≤ 15 min; RTO ≤ 4 h | T-CQ05-01, T-CQ05-02, T-CQ05-03 (só RTO; o RPO não é testado, ver lacunas) |
@@ -289,6 +298,8 @@ se falhar, o relatório diz que falhou e propõe a causa (regra do bloco 9).
 Casos que **este plano acrescenta** e que não estão nos prompts dos blocos (combinar antes de automatizar):
 T-RLS-06 (DELETE cruzado), T-RLS-13 a 17, T-ISO-05, 06, 07, 12, 15, T-AUTH-03, 07, 08, T-CON-02 a 04,
 T-IMP-03 a 08, 11 a 14, T-RL-02 a 05, T-OBS-01, T-CQ04-02, T-PROD-03, T-LGPD-01.
+T-WEB-02 a T-WEB-09 vieram do bloco 13 (Fases 4 e 5) e já estão automatizados contra o simulador do
+contrato; falta rodá-los contra a stack real (Fase 6, ver [`portal-pendencias.md`](portal-pendencias.md)).
 
 ---
 
@@ -355,7 +366,7 @@ Problemas que os testes vão expor. A solução sugerida vem ao lado, para decid
 |---|---|---|
 | **Etapa 2** — núcleo multi-tenant | 1 a 7 | `npm test` verde com T-RLS-01 a 17, T-ISO-01 a 13 e 15, T-AUTH-01 a 08, T-CON-01 a 04, T-IMP-01 a 13, T-RL-01 a 05 e T-OBS-01. Ensaios T-RES-01 a 05, T-IMP-14 e T-OBS-02 executados com saída registrada. `scripts/demo-isolamento.ps1` rodando até o fim no Compose e no kind |
 | **Etapa 3** — qualidade medida | 8 a 11 | Tudo da Etapa 2 rodando **no CI** a cada push. T-ISO-14 demonstrado (build vermelha com rota proibida). T-CQ01-01 aprovado e T-CQ01-02 registrado em `docs/ensaios/cq01-<data>.md`. T-CQ03-01 aprovado e T-RES-06 executado. T-CQ04-01 e T-CQ04-02 e T-CQ05-01 a 03 com relatório em `docs/ensaios/` |
-| **Etapa 4** — produto e entrega | 12 a 15 | Tudo das etapas 2 e 3, mais T-ISO-16 a 18, T-PROD-01 a 03, T-WEB-01 e T-LGPD-01 a 03. T-RLS-15 continua verde com a tabela `interacoes`. Lacunas da seção 3.5 resolvidas ou declaradas na defesa |
+| **Etapa 4** — produto e entrega | 12 a 15 | Tudo das etapas 2 e 3, mais T-ISO-16 a 18, T-PROD-01 a 03, T-WEB-01 a T-WEB-09 (contra a stack real) e T-LGPD-01 a 03. T-RLS-15 continua verde com a tabela `interacoes`. Lacunas da seção 3.5 resolvidas ou declaradas na defesa |
 
 Uma etapa só está pronta se **nenhum** teste de isolamento (T-RLS, T-ISO) estiver vermelho ou desativado.
 O CQ-02 não admite exceção: um vazamento em mil continua sendo vazamento.

@@ -1,0 +1,138 @@
+/*
+ * Tokens do OrbitaTI: a única fonte de cor, espaço, raio, sombra e movimento do Portal.
+ *
+ * As cores foram extraídas dos pixels da logo (docs/marca/logo-referencia.jpg) e o contraste
+ * WCAG foi medido (fórmula de luminância relativa). Os números ao lado são a razão de contraste.
+ *
+ * Tema: escuro é o padrão (é a identidade). O claro liga por prefers-color-scheme ou pelo
+ * alternador manual, que grava data-tema="claro" | "escuro" no <html> e tem prioridade.
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* Superfícies */
+  --fundo: #020a1f;
+  --fundo-brilho: #052645; /* brilho radial no topo da página */
+  --superficie: #0b1b30;
+  --superficie-elevada: #102840;
+  --superficie-ativa: #102840; /* item de menu ativo */
+
+  /* Texto */
+  --texto: #f1f7ff; /* 18,3:1 no fundo · 16,1:1 na superfície */
+  --texto-secundario: #9fb3c8; /* 8,0:1 na superfície */
+  --texto-mudo: #7c93ab; /* 5,4:1 na superfície · 4,7:1 na superfície elevada */
+
+  /* Bordas */
+  --borda-sutil: #1e3a5f; /* só decoração: divisórias */
+  --borda-campo: #4f7099; /* 3,4:1 — contorno de input (WCAG 1.4.11 pede 3:1) */
+
+  /* Marca */
+  --ciano: #42def7; /* 12,2:1 — foco, destaque, link */
+  --teal: #24e0d1; /* 11,9:1 — começo do anel */
+  --azul: #307fdc; /* 4,9:1 — fim do gradiente */
+  --indigo: #4769e5; /* 4,1:1 — SÓ decoração (anel). Nunca em texto */
+
+  /* Papéis */
+  --primario: var(--ciano); /* links e destaques */
+  --primario-fundo: linear-gradient(135deg, #42def7 0%, #307fdc 100%);
+  --primario-fundo-hover: linear-gradient(135deg, #6ae6fa 0%, #4a8fe2 100%);
+  --sobre-primario: #020a1f; /* 4,9:1 no pior ponto (#307FDC). Branco daria 4,0:1 e reprova */
+  --foco: var(--ciano);
+  --anel-gradiente: linear-gradient(90deg, #24e0d1, #42def7 40%, #307fdc 75%, #4769e5);
+  --gradiente-ti: linear-gradient(180deg, #42def7 0%, #307fdc 100%); /* "TI" do logotipo */
+
+  /* Estados (sempre acompanhados de ícone + texto: cor nunca é o único sinal) */
+  --sucesso: #34d399; /* 9,0:1 */
+  --aviso: #fbbf24; /* 10,4:1 */
+  --erro: #f87171; /* 6,3:1 */
+
+  /* Brilho: só logo, foco, botão primário, item ativo e mapa de órbita */
+  --brilho-primario: 0 0 0 1px rgb(66 222 247 / 0.35), 0 4px 24px rgb(66 222 247 / 0.28);
+  --brilho-ativo: 0 0 16px rgb(66 222 247 / 0.35);
+  --sombra-elevada: 0 12px 32px rgb(0 0 0 / 0.45);
+  --veu: rgb(2 10 31 / 0.72); /* fundo atrás de modal/folha */
+
+  /* Tipografia */
+  --fonte-titulo: "Montserrat", ui-sans-serif, system-ui, sans-serif;
+  --fonte-corpo: "Inter", ui-sans-serif, system-ui, sans-serif;
+
+  /* Espaço: escala de 4 px (densidade padrão da skill) */
+  --espaco: 0.25rem;
+
+  /* Raios */
+  --raio-campo: 0.625rem; /* 10 px */
+  --raio-cartao: 1rem; /* 16 px */
+  --raio-folha: 1.5rem; /* 24 px */
+
+  /* Movimento */
+  --duracao-rapida: 150ms;
+  --duracao-media: 220ms;
+  --curva: cubic-bezier(0.2, 0, 0, 1);
+
+  /* Alvo de toque mínimo (WCAG 2.5.8 / guia da skill) */
+  --alvo-toque: 2.75rem; /* 44 px */
+}
+
+/*
+ * Tema claro: para ler no sol. Valores medidos no fundo #F4F8FC e na superfície #FFFFFF.
+ * Aparece duas vezes (preferência do sistema e escolha manual) porque CSS puro não tem mixin.
+ * MANTENHA OS DOIS BLOCOS IGUAIS: o teste de unidade do tema confere isso.
+ */
+@media (prefers-color-scheme: light) {
+  :root:not([data-tema="escuro"]) {
+    color-scheme: light;
+    --fundo: #f4f8fc;
+    --fundo-brilho: #e3eef9;
+    --superficie: #ffffff;
+    --superficie-elevada: #ffffff;
+    --superficie-ativa: #e3eef9;
+    --texto: #0a1628; /* 17,0:1 */
+    --texto-secundario: #46607a; /* 6,5:1 */
+    --texto-mudo: #5b7089; /* 5,1:1 */
+    --borda-sutil: #dce5ef;
+    --borda-campo: #71879f; /* 3,7:1 */
+    --primario: #1d5fc0; /* 5,7:1 no fundo */
+    --primario-fundo: #1d5fc0;
+    --primario-fundo-hover: #174fa3;
+    --gradiente-ti: linear-gradient(180deg, #307fdc 0%, #1d5fc0 100%);
+    --sobre-primario: #ffffff; /* 6,1:1 */
+    --foco: #1d5fc0;
+    --teal: #0b7f78;
+    --sucesso: #047857; /* 5,5:1 */
+    --aviso: #b45309; /* 5,0:1 */
+    --erro: #b91c1c; /* 6,5:1 */
+    --brilho-primario: 0 1px 2px rgb(10 22 40 / 0.12), 0 4px 12px rgb(29 95 192 / 0.22);
+    --brilho-ativo: none;
+    --sombra-elevada: 0 12px 32px rgb(10 22 40 / 0.16);
+    --veu: rgb(10 22 40 / 0.45);
+  }
+}
+
+:root[data-tema="claro"] {
+  color-scheme: light;
+  --fundo: #f4f8fc;
+  --fundo-brilho: #e3eef9;
+  --superficie: #ffffff;
+  --superficie-elevada: #ffffff;
+  --superficie-ativa: #e3eef9;
+  --texto: #0a1628;
+  --texto-secundario: #46607a;
+  --texto-mudo: #5b7089;
+  --borda-sutil: #dce5ef;
+  --borda-campo: #71879f;
+  --primario: #1d5fc0;
+  --primario-fundo: #1d5fc0;
+  --primario-fundo-hover: #174fa3;
+  --gradiente-ti: linear-gradient(180deg, #307fdc 0%, #1d5fc0 100%);
+  --sobre-primario: #ffffff;
+  --foco: #1d5fc0;
+  --teal: #0b7f78;
+  --sucesso: #047857;
+  --aviso: #b45309;
+  --erro: #b91c1c;
+  --brilho-primario: 0 1px 2px rgb(10 22 40 / 0.12), 0 4px 12px rgb(29 95 192 / 0.22);
+  --brilho-ativo: none;
+  --sombra-elevada: 0 12px 32px rgb(10 22 40 / 0.16);
+  --veu: rgb(10 22 40 / 0.45);
+}

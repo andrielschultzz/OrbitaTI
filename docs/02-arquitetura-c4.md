@@ -206,6 +206,50 @@ Os dois componentes em laranja são os que sustentam o isolamento. O **Resolvedo
 
 ---
 
+## Estado atual da implementação
+
+> Atualizado em 07/11/2026 (bloco 13). Os diagramas acima são a **proposta** da Etapa 1. Esta seção diz o
+> que já existe em código.
+
+### Portal Web: implementado, ligado ao simulador
+
+```mermaid
+flowchart LR
+    nav["Navegador<br/>(celular ou desktop)"]
+    subgraph web["Container web — nginx não-root, porta 8080"]
+        spa["SPA React<br/>(arquivos estáticos)"]
+        proxy["Proxy /api<br/>(remove o prefixo)"]
+    end
+    api["API REST<br/>(hoje: simulador do contrato)"]
+    nav -- "/, /contatos, /assets/..." --> spa
+    nav -- "/api/... + Authorization: Bearer JWT" --> proxy
+    proxy -- "/... + X-Forwarded-For, X-Request-Id" --> api
+    proxy -. "/api/interno/... → 404 (bloqueado no nginx)" .-> nav
+```
+
+- **Mesma origem, sem CORS.** O navegador fala só com o nginx. As telas e a API ficam no mesmo endereço
+  (`/` e `/api`), então não existe requisição entre origens. Isso dispensa liberar CORS na API, e a CSP
+  pode ser `connect-src 'self'`.
+- **O nginx serve a SPA** com fallback para `index.html` (o React Router decide a tela) e **faz proxy de
+  `/api`** para a API, com o endereço vindo de `API_UPSTREAM`.
+- **Camadas a mais na borda:**
+  - `/api/interno` responde 404 no próprio nginx;
+  - CSP sem nada externo e sem script inline;
+  - `client_max_body_size 2m`, para o 413 de CSV grande vir da API, em JSON;
+  - `X-Forwarded-For` com o IP real, para os rate limits por IP;
+  - `X-Request-Id` repassado ou gerado, para correlacionar os logs.
+- **O limite de tenant no Portal** segue a tabela "Containers em detalhe": o JWT fica no
+  `sessionStorage` da aba e o tenant nunca aparece em URL, query ou corpo. O cliente HTTP trava isso em
+  desenvolvimento, e o teste T-WEB-01 confere no fluxo inteiro.
+- **Ainda não ligado à API real.** O `/api` aponta para o **simulador** do contrato (`web/simulador/`),
+  porque a API REST (blocos 2, 4 e 12) ainda não existe. A integração e a entrada do `web` no compose e no
+  kind são a Fase 6 do bloco 13, **pendente**: ver [`portal-pendencias.md`](portal-pendencias.md).
+
+Os outros containers (API, fila, worker, banco) ainda não existem em código nesta data. Cada um tem o
+seu bloco em `prompts/`.
+
+---
+
 ## Decisões registradas
 
 | Decisão | ADR |

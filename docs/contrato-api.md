@@ -1,6 +1,7 @@
 # Contrato HTTP da API de Contatos
 
-**Versão:** 1 — 07/11/2026, derivada do `CLAUDE.md` e dos blocos 2, 4, 5, 10, 12 e 14.
+**Versão:** 1.1 — 07/11/2026, derivada do `CLAUDE.md` e dos blocos 2, 4, 5, 10, 12 e 14.
+Mudanças da 1.1 (Fase 0 do bloco 13): `GET /planos/atual` virou `GET /planos` pública; dados extras de erro no nível de cima; lacuna dos papéis declarada.
 
 ## Para que serve
 
@@ -28,7 +29,8 @@
 - **`x-request-id`.** Aceito na requisição ou gerado; sempre devolvido na resposta.
 - **Nenhuma requisição leva `tenant_id`** (regra 1). Propriedades extras no corpo são descartadas pelo Fastify, então um `tenant_id` no corpo é ignorado (T-ISO-06).
 - **Nenhuma resposta devolve `tenant_id`.** O Portal não precisa dele, e esconder reduz o que um atacante aprende. As exceções são o próprio token (assinado) e a exportação LGPD (dados do próprio tenant).
-- **Rate limit.** Vale para todas as rotas, menos `/saude` e `/interno/*` (bloco 5). Quando estoura, a resposta é 429 com header `Retry-After`.
+- **Rate limit.** Vale para todas as rotas, menos `/saude`, `/planos` e `/interno/*` (bloco 5). Quando estoura, a resposta é 429 com header `Retry-After`.
+  - `/saude` e `/planos` ficam fora porque só leem memória (o `planos.js`) ou fazem um `SELECT 1`: checar o limite, que é uma ida ao Redis, custaria mais que a própria resposta.
 
 ---
 
@@ -41,6 +43,9 @@
 - **`erro`** é texto para gente. O Portal pode mostrar direto, ou trocar por um texto mais específico numa tela.
 - **`codigo`** é um identificador estável para programa. O Portal e os testes decidem pelo `codigo`, nunca comparando texto.
 - **Validação (400)** traz também os campos: `"campos": [{ "campo": "email", "erro": "E-mail inválido." }]`.
+- **Dados extras de um erro** ficam no nível de cima, ao lado de `erro` e `codigo`, nunca dentro de outro objeto:
+  - 422 `LINHAS_ACIMA_DO_PLANO`: `{"erro": "...", "codigo": "LINHAS_ACIMA_DO_PLANO", "limite": 100, "linhas": 253}`;
+  - 429 `IMPORTACOES_SIMULTANEAS`: `{"erro": "...", "codigo": "IMPORTACOES_SIMULTANEAS", "limite": 2}`.
 - **Implementação.** Um `setErrorHandler` e um `setNotFoundHandler` no `buildApp()` traduzem para este formato tudo o que o Fastify gera sozinho: validação, 413 do `bodyLimit`, 415, JWT inválido e o 429 do `@fastify/rate-limit` (via `errorResponseBuilder`).
 - **Erro inesperado (500)** nunca devolve stack trace.
 
@@ -258,14 +263,27 @@
   - ao concluir: "{total_linhas − linhas_invalidas} contatos importados, {linhas_invalidas} linhas com erro".
   - O detalhe de cada linha com erro fica no schema `importacao`, que a API não lê (regra 10), e por isso não aparece no Portal.
 
-### `GET /planos/atual` — bloco 4
+### `GET /planos` — bloco 4 (**pública**, sem token e sem rate limit)
 
 ```json
-{ "plano": "individual", "limites": { "linhas_por_importacao": 100, "importacoes_simultaneas": 2, "usuarios": 1, "requisicoes_por_minuto": 60, "tamanho_maximo_csv_bytes": 1048576 } }
+{
+  "itens": [
+    { "plano": "individual", "nome": "Individual", "preco_mensal_centavos": 4900,
+      "limites": { "usuarios": 1, "linhas_por_importacao": 100, "importacoes_simultaneas": 2, "requisicoes_por_minuto": 60, "tamanho_maximo_csv_bytes": 1048576 } },
+    { "plano": "equipe", "nome": "Equipe", "preco_mensal_centavos": 24900,
+      "limites": { "usuarios": 10, "linhas_por_importacao": 5000, "importacoes_simultaneas": 5, "requisicoes_por_minuto": 600, "tamanho_maximo_csv_bytes": 1048576 } }
+  ]
+}
 ```
 
-- Lê o plano do token e os limites do `planos.js`; o tamanho máximo vem da configuração do `bodyLimit`.
-- **Para que serve:** o Portal mostra os limites sem copiar números. O `planos.js` continua sendo a única fonte.
+- Tudo vem do `planos.js`, que passa a guardar também o preço. O tamanho máximo vem da configuração do `bodyLimit`.
+- **Preço em centavos (inteiro):** dinheiro em ponto flutuante acumula erro de arredondamento; o Portal formata com `Intl.NumberFormat('pt-BR', {style: 'currency', currency: 'BRL'})`.
+- **Pública** porque a tela de cadastro precisa mostrar os planos antes de existir um token. Não tem dado de tenant: é a mesma resposta para qualquer pessoa. Por isso fica fora da tabela do T-ISO-15, como `/auth/*` e `/saude`.
+- **Sem rate limit** (seção 1): só lê memória.
+- **Como o Portal usa:**
+  - no cadastro, mostra os cartões dos planos com preço, usuários, linhas por importação e importações simultâneas. Nada de recurso que ainda não existe (propostas, webhooks, histórico);
+  - depois do login, escolhe o plano atual pelo claim `plano` do token e mostra os limites dele na Conta e na Importação.
+- **Para que serve:** o Portal mostra preços e limites sem copiar números. O `planos.js` continua sendo a única fonte.
 
 ---
 
@@ -307,6 +325,7 @@
 ## 10. Fora deste contrato (lacunas conhecidas, decidir quando chegar)
 
 - **Convidar usuários para a conta.** Não existe rota. Sem ela, o plano Equipe ("até 10 usuários") tem, na prática, um usuário só.
+- **O que cada papel pode fazer.** O contrato só restringe `/conta/*` (só `admin`, 403 `SEM_PERMISSAO`). Não está definido se `visualizador` só lê nem o que `consultor` não pode. Até decidir, o Portal trata todos os papéis igual, menos `/conta/*`. Como hoje só existe o `admin` criado no cadastro (sem convite não há outros papéis), a lacuna não aparece na prática; ela é decidida junto com o convite.
 - **Histórico de 6 meses no plano Individual** (visão do produto). Se for implementado, o limite vem do `planos.js`.
 - **Propostas em PDF, webhooks, oportunidades e campos personalizados:** fora do escopo do semestre.
 
@@ -326,5 +345,7 @@ Registrar no ADR-004 (bloco 7) e saber defender:
 | `ON DELETE CASCADE` nas interações | Excluir um contato com histórico não pode dar 500 |
 | Cabeçalho e colunas do CSV definidos; 422 para CSV vazio ou sem colunas | Fecha a lacuna "Formato do CSV" de `pendencias-bloco-7.md`; o erro chega na hora, não depois da fila |
 | Rotas `/interno/.../inicio` e `/falha` | Sem elas a importação pode nunca concluir (seção 8) |
-| `GET /planos/atual` | O Portal mostra limites sem duplicar o `planos.js` |
+| `GET /planos` público, com preço em centavos, sem rate limit | O cadastro mostra os planos antes de existir token; o Portal mostra preços e limites sem duplicar o `planos.js`; a rota só lê memória, então o rate limit custaria mais que ela |
+| Dados extras de erro (`limite`, `linhas`) no nível de cima | Um só formato para o Portal ler, sem objeto aninhado |
+| Papéis tratados igual, menos `/conta/*` | Lacuna declarada (seção 10), decidida junto com o convite de usuários |
 | `PORTAL_URL` nos links de e-mail | Os links funcionam local e na VM sem mudar código |

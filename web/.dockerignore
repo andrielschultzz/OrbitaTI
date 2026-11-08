@@ -1,0 +1,13 @@
+# Só o necessário para o build entra no contexto do Docker.
+node_modules
+dist
+simulador
+e2e
+scripts
+capturas
+playwright-report
+test-results
+design-system
+**/*.test.js
+.env
+.env.*

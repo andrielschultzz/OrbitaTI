@@ -1,0 +1,82 @@
+# Portal Web do OrbitaTI: serve a SPA e faz proxy de /api para a API (mesma origem, sem CORS).
+# Este arquivo é um TEMPLATE: na subida do contêiner, o entrypoint do nginx troca ${API_UPSTREAM}
+# pelo valor da variável de ambiente (envsubst) e grava o resultado em /etc/nginx/conf.d/default.conf.
+# Só variáveis que começam com API_ são trocadas (NGINX_ENVSUBST_FILTER no Dockerfile), para que
+# variáveis do próprio nginx ($uri, $host...) nunca sejam confundidas com variáveis de ambiente.
+
+server_tokens off;
+
+# Id de correlação: usa o X-Request-Id do cliente se vier; senão, o $request_id gerado pelo nginx.
+# A API devolve o mesmo id na resposta e o leva para o log e para o job da importação.
+map $http_x_request_id $id_requisicao {
+    default $http_x_request_id;
+    ""      $request_id;
+}
+
+gzip on;
+gzip_comp_level 5;
+gzip_min_length 1024;
+gzip_vary on;
+gzip_proxied any;
+gzip_types text/css application/javascript text/javascript application/json
+           application/manifest+json image/svg+xml text/csv text/plain;
+
+server {
+    listen 8080;
+    server_name _;
+    root /usr/share/nginx/html;
+
+    # 2m > 1 MB da API: o 413 de CSV grande vem da API, em JSON com ARQUIVO_GRANDE.
+    # Com o padrão do nginx (1m), quem responderia seria o nginx, em HTML, e o Portal perderia o código.
+    client_max_body_size 2m;
+
+    include /etc/nginx/seguranca.conf;
+
+    # Healthcheck do compose/kind. Não passa pela API: diz só se o nginx está de pé.
+    location = /healthz {
+        access_log off;
+        default_type text/plain;
+        return 200 "ok\n";
+    }
+
+    # Rotas internas (worker -> API) nunca são alcançáveis pelo Portal. Já exigem token de serviço;
+    # isto é uma camada a mais. O nginx normaliza a URL antes de comparar (%69nterno, //interno, ../),
+    # então variações não escapam. Resposta no formato de erro do contrato.
+    location ^~ /api/interno {
+        default_type application/json;
+        return 404 '{"erro":"Recurso não encontrado.","codigo":"NAO_ENCONTRADO"}';
+    }
+
+    # Proxy da API: /api/contatos -> http://API_UPSTREAM/contatos (a barra final do proxy_pass tira o /api).
+    location /api/ {
+        proxy_pass http://${API_UPSTREAM}/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        # A API usa o X-Forwarded-For via trustProxy (TRUST_PROXY_SALTOS, bloco 5). Sem isso, os rate
+        # limits de login e cadastro veriam todo mundo com o IP do nginx. $proxy_add_x_forwarded_for
+        # ACRESCENTA o IP real no fim; com 1 salto confiável a API lê só esse último, então um
+        # X-Forwarded-For forjado pelo cliente fica à esquerda e é ignorado.
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Request-Id $id_requisicao;
+        # A importação manda até 1 MB de CSV: lê o corpo inteiro antes de abrir a conexão com a API.
+        proxy_request_buffering on;
+    }
+
+    # Assets do Vite têm hash no nome: se o conteúdo muda, o nome muda. Cache de 1 ano é seguro.
+    location /assets/ {
+        include /etc/nginx/seguranca.conf;
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+        try_files $uri =404;
+    }
+
+    # SPA: qualquer rota do Portal (/contatos/123, /importar...) devolve o index.html e o React Router
+    # decide a tela. index.html e arquivos sem hash: no-cache (revalida sempre, usa ETag) para que um
+    # deploy novo apareça no próximo carregamento.
+    location / {
+        include /etc/nginx/seguranca.conf;
+        add_header Cache-Control "no-cache" always;
+        try_files $uri /index.html;
+    }
+}

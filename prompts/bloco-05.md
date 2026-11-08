@@ -12,7 +12,8 @@ Faça:
    chave = tenant_id, máximo = 60 req/min x usuários do plano (planos.js: 60 | 600).
    POST /auth/login: chave = IP + e-mail, 10 req/min (contra força bruta numa conta).
    POST /auth/cadastro: chave = IP, LIMITE_CADASTRO_POR_MIN (padrão 60, para a suíte de
-   testes e o setup do k6 não se bloquearem). /saude e /interno ficam fora.
+   testes e o setup do k6 não se bloquearem). /saude, /interno e /planos ficam fora
+   (/saude e /planos só leem memória ou fazem SELECT 1; a ida ao Redis custaria mais que a resposta).
    Resposta 429 com header Retry-After e corpo {erro, codigo: "LIMITE_REQUISICOES"} do contrato
    (errorResponseBuilder do @fastify/rate-limit).
 3. tests/rate-limit.test.js: um tenant individual faz 61 requisições -> a 61ª é 429,
