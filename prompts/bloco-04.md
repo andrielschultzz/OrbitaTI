@@ -30,7 +30,15 @@ Faça na API:
    responde {aplicado:false}; senão faz upsert dos contatos ON CONFLICT (tenant_id, email),
    registra o lote, incrementa lotes_aplicados, marca processando/concluida e responde
    {aplicado:true}. Importação de outro tenant -> 404.
-5. GET /saude passa a informar também { fila: "ok" | "fora" }.
+5. GET /saude passa a informar também { fila: "ok" | "fora" }. Status (decisão 2 de
+   prompts/decisoes-plano-de-testes.md; contrato, GET /saude): 200 quando o banco está ok, MESMO
+   com a fila fora ({"db":"ok","fila":"fora"}); 503 só com o banco fora. Por quê: no kind a
+   readinessProbe usa /saude, e um 503 com o Redis fora tiraria todas as réplicas da API do ar.
+   Teste T-OBS-03 (docs/plano-de-testes.md, seção 2.8):
+     - arquivo services/api-contatos/test/saude.test.js, unitário, sem stack;
+     - buildApp() com banco e fila simulados, cobrindo as 4 combinações de ok e fora;
+     - para isso, o buildApp() precisa aceitar a verificação da fila como opção, assim como já
+       aceita o pool.
 5a. POST /interno/importacoes/:id/inicio {total_lotes, linhas_invalidas} e
     POST /interno/importacoes/:id/falha {motivo}, com o mesmo token de serviço da rota de lotes
     (contrato, seção 8). total_lotes nasce nulo no POST /importacoes e quem o informa é o worker.
@@ -42,8 +50,10 @@ Faça na API:
 5b. GET /planos (contrato, seção 7): rota PÚBLICA, sem token e sem rate limit, que lista os planos
     com nome, preco_mensal_centavos e limites, tudo lido do planos.js (tamanho máximo do CSV vem do
     bodyLimit). O cadastro do Portal mostra os planos antes de existir token; depois do login o Portal
-    escolhe o plano atual pelo claim `plano`. Sem dado de tenant: acrescente /planos às rotas fora da
-    tabela do T-ISO-15 (junto com /auth/* e /saude), senão o teste de isolamento acusa a rota.
+    escolhe o plano atual pelo claim `plano`. Sem dado de tenant: acrescente "GET /planos" à lista fixa
+    ROTAS_PUBLICAS de tests/isolamento.test.js (hoje GET /saude, POST /auth/cadastro e
+    POST /auth/login), senão o T-ISO-15 acusa a rota. A lista é fixa de propósito: marcar uma rota
+    como pública não pode ser um jeito de escapar da autenticação e da suíte ao mesmo tempo.
 
 Faça no serviço services/importacao:
 6. Worker BullMQ (concurrency 2, attempts 3, backoff exponencial), DATABASE_URL_IMPORTACAO,

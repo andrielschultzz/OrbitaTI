@@ -178,7 +178,7 @@ casos são **ensaios** executados pelo script, com o resultado registrado.
 | T-RES-01 | Importação fora não derruba o CRM | ADR-003; CLAUDE.md (observabilidade) | stack no ar | `docker compose stop importacao`; login, busca, `POST /contatos` | Todos 2xx | Ensaio operacional | PowerShell | 5 | planejado |
 | T-RES-02 | Importação enviada com o worker fora espera e conclui | ADR-003 | T-RES-01 | `POST /importacoes` → `docker compose start importacao` | 202 e `na_fila`; depois `concluida` | Ensaio operacional | PowerShell | 5 | planejado |
 | T-RES-03 | Redis fora → 503 rápido | CLAUDE.md (`enableOfflineQueue: false`) | stack no ar | `docker compose stop redis`; `POST /importacoes` cronometrado | 503 com a mensagem "Importação indisponível no momento..." em **< 2 s**; nenhum registro órfão em `orbita.importacoes` | Ensaio operacional | PowerShell | 5 | planejado |
-| T-RES-04 | Redis fora não derruba o resto | CLAUDE.md | T-RES-03 | Login, busca, CRUD de contatos e `GET /saude` | 2xx; `/saude` → HTTP 200 com `{db:"ok", fila:"fora"}` | Ensaio operacional | PowerShell | 5 | planejado |
+| T-RES-04 | Redis fora não derruba o resto | CLAUDE.md | T-RES-03 | Login, busca, CRUD de contatos e `GET /saude` | 2xx; `/saude` → HTTP 200 com `{db:"ok", fila:"fora"}`. Nenhum 500 vindo do rate limit: com `skipOnError: true`, ele é ignorado enquanto o Redis está fora (decisão 3) | Ensaio operacional | PowerShell | 5 | planejado |
 | T-RES-05 | Redis volta sem reiniciar a API | ADR-003 | T-RES-03 | `docker compose start redis`; `POST /importacoes` | 202, sem reiniciar a `api-contatos` | Ensaio operacional | PowerShell | 5 | planejado |
 | T-RES-06 | Cadastro funciona com a fila de e-mail fora | Bloco 10, item 3; CQ-03 | Redis parado | `POST /auth/cadastro` | 201; aviso no log; nenhum e-mail enviado | Ensaio operacional | PowerShell | 10 | planejado |
 
@@ -197,6 +197,7 @@ casos são **ensaios** executados pelo script, com o resultado registrado.
 | ID | O que verifica | Origem | Pré-condição | Passos | Resultado esperado | Tipo | Ferramenta | Bloco | Status |
 |---|---|---|---|---|---|---|---|---|---|
 | T-OBS-01 | `x-request-id` aceito ou gerado | CLAUDE.md (observabilidade) | — | Requisição com `x-request-id: demo-123`; outra sem o header | 1ª devolve `demo-123`; 2ª devolve um UUID | Integração | Vitest | 5 | planejado |
+| T-OBS-03 | Status HTTP do `/saude` nas 4 combinações (decisão 2) | CLAUDE.md (observabilidade); contrato, `GET /saude` | — | `buildApp()` com banco e fila **simulados** (ok ou fora) e `inject` em `GET /saude`, em `services/api-contatos/test/saude.test.js` | db ok + fila ok → 200 `{db:"ok",fila:"ok"}`; db ok + fila fora → **200** `{db:"ok",fila:"fora"}`; db fora → **503** (com a fila ok ou fora). Só o banco decide o 503: a `readinessProbe` do kind não tira a API do ar quando só o Redis cai. O caso real (Redis parado de verdade) é o T-RES-04 | Unitário | Vitest | 4 | planejado |
 | T-OBS-02 | O id atravessa a fila | CLAUDE.md | — | Importação com `x-request-id: demo-123`; `docker compose logs \| Select-String demo-123` | Linhas da `api-contatos` **e** da `importacao` com `demo-123`, `reqId` e `tenant_id` | Ensaio operacional | PowerShell | 5 | planejado |
 
 ### 2.9 Cenários de qualidade CQ-01, CQ-03, CQ-04 e CQ-05
@@ -206,12 +207,12 @@ se falhar, o relatório diz que falhou e propõe a causa (regra do bloco 9).
 
 | ID | O que verifica | Origem | Pré-condição | Passos | Resultado esperado | Tipo | Ferramenta | Bloco | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| T-CQ01-01 | Vizinho barulhento **com** a mitigação | CQ-01; ADR-003 | `IMPORT_LOTE=100`, `IMPORT_PAUSA_MS=500`; setup cria 1 tenant equipe e 10 individuais com 50 contatos cada | Barulhento: 3 importações de 500 linhas, uma a cada 20 s. Observadores: 10 VUs, `GET /contatos?busca=` a cada 3 s, por 2 min | Observadores: **p95 < 800 ms**, **máx < 2 s**, **0 falhas** (`http_req_failed rate == 0`) | Carga | k6 | 9 | planejado |
-| T-CQ01-02 | Mesma carga **sem** a mitigação | CQ-01 (comparação) | `IMPORT_LOTE=5000`, `IMPORT_PAUSA_MS=0` | Igual ao T-CQ01-01 | Sem critério de aprovação: registrar p50/p95/p99/máx para comparar com T-CQ01-01 em `docs/ensaios/cq01-<data>.md` | Carga | k6 | 9 | planejado |
+| T-CQ01-01 | Vizinho barulhento **com** a mitigação | CQ-01; ADR-003 | `IMPORT_LOTE=100`, `IMPORT_PAUSA_MS=500`; setup cria 1 tenant equipe (o barulhento, no papel da TechConsult; **não** a conta de demonstração do seed) e 10 individuais com 50 contatos cada | Barulhento: 3 importações de **5.000 linhas** (limite do plano Equipe; "500 ou mais" do CQ-01), uma a cada 20 s, com linhas curtas (~50 bytes, como no T-IMP-06) e e-mails diferentes em cada importação; para cada uma, registra a **janela** (do `POST /importacoes` até o `GET /importacoes/:id` devolver `concluida` ou `falhou`). Observadores: 10 VUs, `GET /contatos?busca=` a cada 3 s, por 2 min | **Aprovação (decisão 4):** buscas dos observadores que **começaram dentro de uma janela** com **p95 < 800 ms** e **máx < 2 s** (é o que o CQ-01 descreve: "durante uma importação"). O relatório mostra ao lado o p95 **geral** dos observadores e o **n** de cada grupo. **0 falhas** no total (`http_req_failed rate == 0`) | Carga | k6 | 9 | planejado |
+| T-CQ01-02 | Mesma carga **sem** a mitigação | CQ-01 (comparação) | `IMPORT_LOTE=5000`, `IMPORT_PAUSA_MS=0` | Igual ao T-CQ01-01 | Sem critério de aprovação: registrar p50/p95/p99/máx, na janela e no geral, com o n de cada grupo, para comparar com T-CQ01-01 em `docs/ensaios/cq01-<data>.md` | Carga | k6 | 9 | planejado |
 | T-CQ03-01 | Onboarding self-service | CQ-03 | Mailpit no Compose | 20 cadastros; medir do POST até a mensagem aparecer na API do Mailpit | **p90 < 45 s** (p90 de 20 = 18º valor ordenado); 0 ações manuais; imprime p50, p90 e máximo | Integração | Vitest | 10 | planejado |
-| T-CQ04-01 | Medição de disponibilidade | CQ-04 | stack no ar | `scripts/sonda.ps1 -Minutos 30`: `/saude` a cada 60 s | CSV com data, status e latência; % de sucesso e pior latência. Prova o **método**, não os 99,5% (conta na seção 4) | Ensaio operacional | PowerShell | 11 | planejado |
+| T-CQ04-01 | Medição de disponibilidade | CQ-04 | stack no ar | `scripts/sonda.ps1 -Minutos 60 -IntervaloSegundos 15`: `/saude` a cada 15 s por 60 min = **240 amostras** (decisão 7) | CSV com data, status e latência; % de sucesso e pior latência. **≥ 99,5%** = no máximo 1 falha em 240. Prova o **método**, não a disponibilidade do mês (conta e limitação na seção 4) | Ensaio operacional | PowerShell | 11 | planejado |
 | T-CQ04-02 | Deploy sem parada | CQ-04 ("deploy sem downtime") | kind com 2 réplicas da API | Sonda a cada 1 s enquanto roda `kubectl rollout restart deployment/api-contatos -n orbitati` | 0 respostas 5xx ou timeout. **Proposta nova** (seção 5) | Ensaio operacional | PowerShell + kubectl | 11 | planejado |
-| T-CQ05-01 | Restauração cronometrada | CQ-05 | backup recente (`scripts/backup.ps1`) | `scripts/ensaio-restauracao.ps1` em container `postgres-ensaio` separado | Restauração ≤ 30 min e verificação ≤ 60 min (orçamento do CQ-05); somadas aos 45 min de detecção e decisão, total ≤ **4 h** | Ensaio operacional | PowerShell | 11 | planejado |
+| T-CQ05-01 | Restauração cronometrada | CQ-05 | backup recente (`scripts/backup.ps1`) | `scripts/ensaio-restauracao.ps1` em container `postgres-ensaio` separado | Restauração ≤ 30 min e verificação ≤ 60 min (orçamento do CQ-05); somadas aos 45 min de detecção e decisão, total ≤ **4 h**. O relatório declara que o RPO de 15 min **não** é medido localmente (decisão 8, L3) | Ensaio operacional | PowerShell | 11 | planejado |
 | T-CQ05-02 | Integridade da cópia restaurada | CQ-05 | T-CQ05-01 | Comparar origem e cópia | Contagem igual em todas as tabelas; políticas em `pg_policies`; `FORCE` ativo; nenhum papel de aplicação com BYPASSRLS. Qualquer divergência reprova | Ensaio operacional | PowerShell | 11 | planejado |
 | T-CQ05-03 | Restaurar um tenant só | ADR-001 (consequência negativa) | T-CQ05-01 | `scripts/restaurar-um-tenant.ps1 -Email <admin>` | CSV só com linhas daquele `tenant_id`; contagem igual à da origem para o tenant | Ensaio operacional | PowerShell | 11 | planejado |
 
@@ -287,16 +288,22 @@ se falhar, o relatório diz que falhou e propõe a causa (regra do bloco 9).
 
 ### 3.5 Lacunas: o que ficou sem teste
 
-| # | O que | Por que ficou sem teste | O que fazer |
-|---|---|---|---|
-| L1 | CQ-02 pede "evento registrado no log de auditoria" no 404 cruzado | **Resolvida (decisão 6, bloco 3).** Com RLS, a API não distingue "de outro tenant" de "inexistente" (os dois são 0 linhas). Por isso todo 404 em rota com `:id` gera o evento `recurso_nao_encontrado` com `tenant_id`, rota e id, coberto pelo T-ISO-19 | Bloco 7: ajustar o texto do CQ-02 em `atributos.md` ([`pendencias-bloco-7.md`](pendencias-bloco-7.md), C11) |
-| L2 | CQ-04: 99,5% ao mês | 30 amostras não conseguem medir 0,5% (conta na seção 4) | Declarar no relatório que é medição de método; a medida real exige a sonda rodando o mês em produção |
-| L3 | CQ-05: RPO de 15 min | Depende de arquivamento contínuo de WAL, que é recurso do banco gerenciado | Declarar no relatório do bloco 11; o ensaio local prova só o RTO e o procedimento |
-| L4 | CQ-03: parte do provedor de e-mail | Localmente não existe provedor real (96% do orçamento de 45 s) | Ressalva no relatório do bloco 10 |
-| L5 | ADR-002: refresh token de 7 dias e denylist em Redis | Não estão em nenhum bloco | Decidir no bloco 7: implementar ou registrar como adiado |
-| L6 | ADR-003: prioridade por plano na fila e "429 com tempo de espera no corpo" | Não estão nos prompts dos blocos | Decidir no ADR-004 se ficam; se ficarem, criar teste |
-| L7 | ADR-003: "intervalo de 5 min entre jobs" | Substituído pela decisão D2 | Nenhum teste; a nota de revisão entra no ADR-003 no bloco 7 |
-| L8 | Notificações, Gerador de Documentos, S3 e R6 da LGPD (URL de PDF) | Não existem nas Etapas 2 e 3 | Criar testes quando os containers existirem |
+Situação de cada lacuna:
+
+- **Resolvida:** passou a ter teste ou deixou de ser lacuna.
+- **Limitação declarada:** não é medida no projeto, e isso é dito no relatório e na defesa.
+- **Aberta:** ainda falta decidir.
+
+| # | O que | Situação | Por quê | O que falta |
+|---|---|---|---|---|
+| L1 | CQ-02 pede "evento registrado no log de auditoria" no 404 cruzado | **Resolvida** (decisão 6, bloco 3) | Com RLS, a API não distingue "de outro tenant" de "inexistente" (os dois são 0 linhas). Por isso todo 404 em rota com `:id` gera o evento `recurso_nao_encontrado` com `tenant_id`, rota e id, coberto pelo T-ISO-19 | Bloco 7: ajustar o texto do CQ-02 em `atributos.md` ([`pendencias-bloco-7.md`](pendencias-bloco-7.md), C11) |
+| L2 | CQ-04: 99,5% ao mês | **Limitação declarada** (decisão 7) | A sonda passa a 15 s por 60 min = 240 amostras, e 1 falha pesa 0,42% (< 0,5%): o ensaio já consegue reprovar. Mas 60 min não são o mês, e 0 falhas em 240 não provam 99,5% (conta na seção 4) | Bloco 11: o relatório declara que é medição de **método**; a medida real é a sonda rodando o mês em produção |
+| L3 | CQ-05: RPO de 15 min | **Limitação declarada** (decisão 8) | Depende de arquivamento contínuo de WAL, que é recurso do banco gerenciado. O ensaio local prova o procedimento e o RTO | Bloco 11: ressalva no `docs/ensaios/cq05-<data>.md`. Bloco 7: nota no CQ-05 do `atributos.md` ([`pendencias-bloco-7.md`](pendencias-bloco-7.md), seção 6) |
+| L4 | CQ-03: parte do provedor de e-mail | **Limitação declarada** | Localmente não existe provedor real (96% do orçamento de 45 s) | Bloco 10: ressalva no relatório |
+| L5 | ADR-002: refresh token de 7 dias e denylist em Redis | **Limitação declarada** (decisão 9) | Fora do escopo do semestre. Token de 15 min sem refresh: ao expirar, o usuário entra de novo. Usuário removido mantém acesso por até 15 min | Bloco 7: o ADR-002 declara isso como decisão, com gatilho de revisão ([`pendencias-bloco-7.md`](pendencias-bloco-7.md), C12) |
+| L6 | ADR-003: prioridade por plano na fila e "429 com tempo de espera no corpo" | **Aberta** | Não estão nos prompts dos blocos | Decidir no ADR-004 se ficam; se ficarem, criar teste |
+| L7 | ADR-003: "intervalo de 5 min entre jobs" | **Resolvida** (decisão D2) | Substituído pelo lote, pela pausa e pela `concurrency: 2`; não há o que testar | Bloco 7: nota de revisão no ADR-003 |
+| L8 | Notificações, Gerador de Documentos, S3 e R6 da LGPD (URL de PDF) | **Aberta** (fora das Etapas 2 e 3) | Os containers não existem | Criar testes quando existirem |
 
 Casos que **este plano acrescenta** e que não estão nos prompts dos blocos (combinar antes de automatizar):
 T-RLS-06 (DELETE cruzado), T-RLS-13 a 17, T-ISO-05, 06, 07, 12, 15, T-AUTH-03, 07, 08, T-CON-02 a 04,
@@ -325,9 +332,14 @@ ou dos prompts dos blocos, e os derivados têm a conta ao lado.
 | p90 de 20 execuções | ⌈0,9 × 20⌉ = 18º valor ordenado | CQ-03 |
 | 20 cadastros não estouram o limite | 20 < 60 cadastros por minuto | `LIMITE_CADASTRO_POR_MIN` |
 | 503 em < 2 s | Valor do `prompts/bloco-05.md`; é o mesmo teto do p100 do CQ-01 | bloco 5 |
-| Amostras do T-CQ01-01 | 10 VUs × (120 s ÷ 3 s) = 400 buscas; o p95 é a 380ª | CQ-01 e bloco 9 |
+| Amostras do T-CQ01-01 (geral) | 10 VUs × (120 s ÷ 3 s) = 400 buscas; o p95 é a 380ª | CQ-01 e bloco 9 |
+| Por que 5.000 linhas no barulhento do CQ-01 | Com 500 linhas, cada importação tem 5 lotes e 4 pausas × 0,5 s = 2 s de pausa: janelas de poucos segundos e só ≈ 20 a 50 buscas dentro delas, e com n = 20 o p95 é o 19º valor, quase o máximo. Com 5.000 linhas: 50 lotes → 49 pausas × 0,5 s ≥ 24,5 s por importação. Começando em 0, 20 e 40 s, as janelas se sobrepõem, e a união vai de 0 a ≥ 64,5 s. Os observadores fazem 10 ÷ 3 s ≈ 3,3 buscas/s → 3,3 × 64,5 ≈ **215, ou seja, ≈ 200 buscas na janela** (estimativa; o relatório registra o n real) | decisão 4 + decisão do bloco 9 |
+| Tamanho do CSV do barulhento | 5.000 linhas de ~50 bytes + cabeçalho ≈ 250 KB < 1 MB. A linha não pode passar de 1.048.576 ÷ 5.001 ≈ 209 bytes; com nome, e-mail, telefone, empresa e observação preenchidos, o CSV passaria de 1 MB e daria 413 em vez de carga | limite de 1 MB; T-IMP-06 |
+| Concorrência do barulhento | Na pior hipótese, as 3 importações estão ativas ao mesmo tempo: 3 ≤ 5 importações simultâneas do plano Equipe (não dá 429). O worker processa no máximo 2 ao mesmo tempo (`concurrency: 2`); a terceira, que começa em 40 s, encontra a primeira já perto do fim | `planos.js`; worker |
+| T-CQ01-02 (sem mitigação) com 5.000 linhas | `IMPORT_LOTE=5000`: cada importação vira **1 lote de 5.000 contatos** num só `POST /interno/importacoes/:id/lotes`. Em JSON, ~100 a 150 bytes por contato ≈ 500 a 750 KB, perto do `bodyLimit` padrão do Fastify (1 MB). O bloco 9 confere esse limite na rota `/interno` antes de rodar. A janela fica curta (sem pausa), então o n "na janela" é pequeno; como o T-CQ01-02 não tem critério de aprovação, o relatório só o declara | decisão do bloco 9 |
 | Restauração ≤ 30 min, verificação ≤ 60 min | Linhas da tabela do RTO no CQ-05; detecção (15) + decisão (30) = 45 min não são medidos localmente | CQ-05 |
-| Por que 30 min de sonda não medem 99,5% | 30 amostras: 1 falha já derruba para 96,7%. Para que 1 falha valha 0,5%, são 200 amostras (200 min a cada 60 s). O mês comercial tem 264 h = 15.840 amostras, e 0,5% delas são 79 (os 79 min do CQ-04) | CQ-04 |
+| 240 amostras da sonda (decisão 7) | 60 min × 60 s ÷ 15 s = 240. A versão anterior (30 min a cada 60 s = 30 amostras) não servia: 1 falha já derrubava para 96,7%. Para que 1 falha pese **no máximo** 0,5%, são precisas 1 ÷ 0,005 = 200 amostras; 240 passa disso. Cada amostra vale 0,42%: 0 falhas = 100%; 1 falha = 99,58% (aprova); 2 falhas = 99,17% (reprova). Cada amostra representa 15 s de serviço | CQ-04 |
+| Limitação das 240 amostras | 0 falhas em 240 **não prova** 99,5%: pela "regra de três" da estatística, com 0 falhas em n amostras o limite superior da taxa de falha (95% de confiança) é 3 ÷ n = 3 ÷ 240 = 1,25%. Provar 99,5% com 0 falhas exigiria 3 ÷ 0,005 = 600 amostras (150 min a cada 15 s). E 60 min não representam o mês: o mês comercial tem 12 h × 22 dias = 264 h, e 0,5% disso são 79 min (os do CQ-04). O ensaio prova o **método**; a medida real é a sonda rodando o mês em produção (L2) | CQ-04 |
 | 24 casos do CQ-02 | 12 rotas do C4 × 2; na Etapa 2 são 8 rotas, todas cobertas (seção 2.2) | CQ-02 |
 
 ---
@@ -341,17 +353,26 @@ Problemas que os testes vão expor. A solução sugerida vem ao lado, para decid
    Os IDs foram mantidos.
 2. **Status HTTP do `/saude` com a fila fora.** No kind, a `readinessProbe` usa `/saude`. Se a resposta for 503
    quando o Redis cai, o Kubernetes tira **todas** as réplicas da API do ar, contrariando o "fila fora não
-   derruba a API". *Solução:* `/saude` responde HTTP 200 sempre que o banco estiver ok, com `fila:"fora"` no
-   corpo (é o que o T-RES-04 exige).
+   derruba a API". **Decidido (decisão 2):** `/saude` responde HTTP 200 com `fila:"fora"` quando só o Redis
+   cai, e 503 apenas com o banco fora. Coberto pelo T-OBS-03 (unitário, as 4 combinações) e pelo T-RES-04
+   (ensaio com o Redis parado de verdade).
 3. **Store do rate limit × Redis fora.** Se o `@fastify/rate-limit` guardar os contadores no Redis, o T-RES-04
    falha: com o Redis fora, toda requisição dá erro. Em memória, com 2 réplicas no kind, o limite efetivo
-   dobra (2 × 60 = 120 req/min no individual). *Solução:* usar Redis com `skipOnError: true` (o limite deixa
-   de valer só enquanto o Redis estiver fora) ou memória documentando o fator de réplicas. É decisão em
-   aberto da [`pendencias-bloco-7.md`](pendencias-bloco-7.md).
+   dobra (2 × 60 = 120 req/min no individual). **Decidido (decisão 3):** contadores no **Redis**, com
+   `skipOnError: true`. Com o Redis fora, o limite deixa de valer em vez de derrubar a API, e volta sozinho
+   quando o Redis volta. Risco aceito: enquanto o Redis estiver fora, não há rate limit (nem o de login).
+   É curto e visível (`/saude` mostra `fila:"fora"`), e o RLS continua isolando os tenants. Conferido no
+   T-RES-04 (requisições seguem 2xx com o Redis parado). Já está no `CLAUDE.md` (números do projeto).
 4. **CQ-01 pode ficar diluído.** 3 importações de 500 linhas são 15 lotes. Com a pausa, o barulhento trabalha
    só uma parte dos 2 minutos, e o p95 das 400 buscas inclui muitas feitas com o banco ocioso. O teste pode
-   passar sem provar nada. *Solução para o bloco 9:* marcar no k6 as buscas feitas **durante** uma importação
-   e reportar o p95 delas também, ou usar no barulhento importações de 5.000 linhas.
+   passar sem provar nada. **Decidido (decisão 4):** o relatório do bloco 9 mostra o p95 das buscas feitas
+   **durante** as janelas de importação, separado do p95 geral, e a aprovação do CQ-01 usa o da janela.
+   **Decidido também (08/11/2026):** com importações de 500 linhas as janelas seriam curtas, com só ≈ 20 a 50
+   buscas dentro delas, e o p95 da janela seria quase o máximo. Por isso o barulhento faz **3 importações de
+   5.000 linhas** num tenant do plano Equipe (no papel da TechConsult), com linhas curtas como no T-IMP-06.
+   Isso continua dentro do "500 ou mais" do CQ-01 e dá ≈ 200 buscas na janela (contas na seção 4). O relatório
+   registra o n de cada grupo. O tenant é criado pelo setup do k6, não é a conta de demonstração do seed:
+   15 mil contatos a mais estragariam a demo de isolamento e as capturas do Portal.
 5. **Teste de concorrência instável.** Uma importação individual de 100 linhas é um lote só e termina em cerca de
    1 s. Disparar 3 seguidas e esperar 429 depende de quem chega primeiro. *Solução:* a fixture do T-IMP-08
    cria as importações `na_fila` direto no banco.
@@ -367,7 +388,7 @@ Problemas que os testes vão expor. A solução sugerida vem ao lado, para decid
 
 | Etapa | Blocos | Precisa passar |
 |---|---|---|
-| **Etapa 2** — núcleo multi-tenant | 1 a 7 | `npm test` verde com T-RLS-01 a 17, T-ISO-01 a 13, 15 e 19, T-AUTH-01 a 08, T-CON-01 a 04, T-IMP-01 a 13, T-RL-01 a 05 e T-OBS-01. Ensaios T-RES-01 a 05, T-IMP-14 e T-OBS-02 executados com saída registrada. `scripts/demo-isolamento.ps1` rodando até o fim no Compose e no kind |
+| **Etapa 2** — núcleo multi-tenant | 1 a 7 | `npm test` verde com T-RLS-01 a 17, T-ISO-01 a 13, 15 e 19, T-AUTH-01 a 08, T-CON-01 a 04, T-IMP-01 a 13, T-RL-01 a 05, T-OBS-01 e T-OBS-03. Ensaios T-RES-01 a 05, T-IMP-14 e T-OBS-02 executados com saída registrada. `scripts/demo-isolamento.ps1` rodando até o fim no Compose e no kind |
 | **Etapa 3** — qualidade medida | 8 a 11 | Tudo da Etapa 2 rodando **no CI** a cada push. T-ISO-14 demonstrado (build vermelha com rota proibida). T-CQ01-01 aprovado e T-CQ01-02 registrado em `docs/ensaios/cq01-<data>.md`. T-CQ03-01 aprovado e T-RES-06 executado. T-CQ04-01 e T-CQ04-02 e T-CQ05-01 a 03 com relatório em `docs/ensaios/` |
 | **Etapa 4** — produto e entrega | 12 a 15 | Tudo das etapas 2 e 3, mais T-ISO-16 a 18, T-PROD-01 a 03, T-WEB-01 a T-WEB-09 (contra a stack real) e T-LGPD-01 a 03. T-RLS-15 continua verde com a tabela `interacoes`. Lacunas da seção 3.5 resolvidas ou declaradas na defesa |
 

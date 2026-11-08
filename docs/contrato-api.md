@@ -278,7 +278,7 @@ Mudanças da 1.1 (Fase 0 do bloco 13): `GET /planos/atual` virou `GET /planos` p
 
 - Tudo vem do `planos.js`, que passa a guardar também o preço. O tamanho máximo vem da configuração do `bodyLimit`.
 - **Preço em centavos (inteiro):** dinheiro em ponto flutuante acumula erro de arredondamento; o Portal formata com `Intl.NumberFormat('pt-BR', {style: 'currency', currency: 'BRL'})`.
-- **Pública** porque a tela de cadastro precisa mostrar os planos antes de existir um token. Não tem dado de tenant: é a mesma resposta para qualquer pessoa. Por isso fica fora da tabela do T-ISO-15, como `/auth/*` e `/saude`.
+- **Pública** porque a tela de cadastro precisa mostrar os planos antes de existir um token. Não tem dado de tenant: é a mesma resposta para qualquer pessoa. Por isso fica fora da tabela de rotas de tenant do T-ISO-15 e entra na lista fixa de rotas públicas do mesmo teste, como `/auth/*` e `/saude`.
 - **Sem rate limit** (seção 1): só lê memória.
 - **Como o Portal usa:**
   - no cadastro, mostra os cartões dos planos com preço, usuários, linhas por importação e importações simultâneas. Nada de recurso que ainda não existe (propostas, webhooks, histórico);
