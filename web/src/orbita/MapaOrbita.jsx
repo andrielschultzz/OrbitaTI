@@ -74,9 +74,9 @@ export default function MapaOrbita({ itens, aoAbrir, className = '' }) {
         );
       })}
 
-      {/* Anel tracejado que gira devagar (só ele se mexe; desliga com reduced-motion) */}
+      {/* Anel tracejado externo, ESTÁTICO. Já girou devagar (120 s); foi tirado porque movimento
+          automático de mais de 5 s sem botão de pausa não atende a WCAG 2.2.2 e gasta bateria no celular. */}
       <circle
-        className="mapa-orbita-giro"
         cx={GEO.centro}
         cy={GEO.centro}
         r={GEO.raioExterno + 8}

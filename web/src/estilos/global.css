@@ -218,7 +218,7 @@
   }
 }
 
-/* Movimento: quem pede menos movimento não vê glow pulsando nem órbita girando */
+/* Movimento: quem pede menos movimento não vê transições nem animações de carregamento */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -230,17 +230,9 @@
   }
 }
 
-/* Mapa de órbita: no máximo uma rotação lenta e sutil do anel tracejado */
-@keyframes orbita-girar {
-  to {
-    transform: rotate(360deg);
-  }
-}
-.mapa-orbita-giro {
-  transform-origin: 50% 50%;
-  transform-box: view-box;
-  animation: orbita-girar 120s linear infinite;
-}
+/* Mapa de órbita: estático. Nada se move sozinho por mais de 5 s (WCAG 2.2.2). As únicas animações
+   contínuas do Portal são indicadores de "carregando" (spinner e barra da importação), que existem só
+   enquanto a operação dura. */
 /* Rótulos do mapa: contorno da cor da superfície para o texto não "cruzar" as linhas dos anéis */
 .mapa-orbita-rotulo {
   paint-order: stroke;

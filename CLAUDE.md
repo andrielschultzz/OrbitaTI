@@ -29,6 +29,15 @@ Se uma tarefa exigir contrariar um ADR, **pare e pergunte**. Não mude a decisã
 - Banco: PostgreSQL 16, migrações em SQL puro em `db/migrations/NNN_nome.sql`
 - Testes: Vitest (`npm test`) contra a stack do Docker Compose
 - Local: Docker Compose. Cluster: kind `saas` (Docker Desktop, Windows), manifests em `deploy/k8s/`
+- **Portal Web (`web/`)**: React 19 + Vite 8 + Tailwind 4 (SPA), servido pelo nginx não-root na porta 8080,
+  que também faz proxy de `/api` para a API (mesma origem, sem CORS). **Exceção à regra "sem etapa de
+  build":** navegador precisa de bundle. O build roda dentro do `web/Dockerfile` (`node:22-alpine`) e a
+  imagem final tem só nginx + arquivos estáticos. Pacote independente, **fora dos workspaces** da raiz
+  (tem `package.json` e `node_modules` próprios; o `vitest.config.js` da raiz, criado no bloco 1, exclui `web/**`). Testes: Vitest
+  (unitários) e Playwright (E2E e capturas).
+- **Estado do Portal (07/11/2026):** roda contra o **simulador do contrato** (`web/simulador/`, Fastify em
+  memória, porta 3001). A integração com a API real (bloco 13, Fase 6) está **pendente** até existirem os
+  blocos 2, 4 e 12. Pendências e lista para a VM em `docs/portal-pendencias.md`
 
 ## Estrutura
 
@@ -41,6 +50,9 @@ deploy/k8s/              manifests do kind
 tests/                   testes de integração (isolamento, RLS, importação)
 tests/carga/             k6 (CQ-01)
 scripts/                 demo de isolamento e utilitários (PowerShell)
+web/                     Portal Web: SPA React (src/), nginx (nginx/), Dockerfile, design system
+web/simulador/           simulador do contrato (docs/contrato-api.md) para o Portal rodar sem a API; fora da imagem
+web/e2e/                 E2E e capturas (Playwright); capturas em web/e2e/capturas/ (fora do git)
 ```
 
 ## Comandos
@@ -53,7 +65,33 @@ docker compose logs -f api-contatos importacao
 docker compose down -v                # derruba e APAGA os dados (reset total)
 ```
 
-API local: http://localhost:3000 · no kind: http://localhost:30080
+Portal Web (em `web/`, com `npm install` próprio):
+
+```
+npm run dev:sim                       # Portal em modo dev (http://localhost:5173) + simulador (3001)
+npm run dev                           # Portal em modo dev contra a API real em localhost:3000
+npm test                              # unitários do Portal e do simulador (Vitest, não precisa de stack)
+npm run simulador                     # só o simulador (3001), para a imagem ou os E2E
+docker build -t orbitati/web:0.1.0 .  # imagem do Portal (nginx + build)
+docker run --rm -p 8080:8080 -e API_UPSTREAM=host.docker.internal:3001 orbitati/web:0.1.0
+npm run test:e2e                      # E2E contra E2E_URL (padrão http://localhost:8080)
+npm run capturas                      # 8 telas x 4 larguras x 2 temas em web/e2e/capturas/
+npm run lighthouse                    # Lighthouse mobile em /entrar e /contatos (via npx)
+```
+
+API local: http://localhost:3000 · no kind: http://localhost:30080 · Portal: http://localhost:8080
+(hoje pelo `docker run` acima; o serviço `web` entra no compose na Fase 6 do bloco 13)
+
+Variáveis do Portal:
+
+| Variável | Onde | Padrão | Para quê |
+|---|---|---|---|
+| `API_UPSTREAM` | imagem do `web` | `api-contatos:3000` | Para onde o nginx manda o `/api` (host:porta, sem barra) |
+| `API_ALVO` | `npm run dev` | `http://localhost:3000` | Para onde o Vite manda o `/api` em desenvolvimento |
+| `E2E_URL` | Playwright e Lighthouse | `http://localhost:8080` | Portal que a suíte testa (8080 Docker, 30080 kind) |
+| `E2E_DEMO_EMAIL` / `E2E_DEMO_SENHA` | capturas e Lighthouse | `marcelo@devsolo.dev` / `Demo@2026` | Conta com dados (na stack real, vem do seed do bloco 3) |
+| `SIM_PORTA`, `SIM_FILA=fora`, `SIM_LIMITE_RPM`, `SIM_PORTAL_URL` | simulador | 3001, ok, plano, `:5173` | Porta e cenários de falha do simulador |
+| `WEB_PORTA` | compose (Fase 6, pendente) | 8080 | Porta publicada do Portal |
 
 ## Regras de multi-tenancy (inegociáveis)
 

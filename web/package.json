@@ -17,7 +17,8 @@
     "icones": "node scripts/gerar-icones.js",
     "capturas:marca": "node scripts/capturar-marca.js",
     "test:e2e": "playwright test --project=e2e",
-    "capturas": "playwright test --project=capturas"
+    "capturas": "playwright test --project=capturas",
+    "lighthouse": "npx --yes -p lighthouse@12.8.2 -p puppeteer-core@24.43.1 node scripts/medir-lighthouse.mjs"
   },
   "dependencies": {
     "@fontsource/inter": "5.3.0",
