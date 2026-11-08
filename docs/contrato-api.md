@@ -56,7 +56,7 @@ Mudanças da 1.1 (Fase 0 do bloco 13): `GET /planos/atual` virou `GET /planos` p
 | 401 | `NAO_AUTENTICADO` | Sem token, ou token inválido, adulterado ou expirado | Sua sessão expirou. Entre de novo. |
 | 401 | `CREDENCIAIS_INVALIDAS` | Login com e-mail inexistente, senha errada ou tenant cancelado. **Mesmo corpo nos três casos** (T-AUTH-05) | E-mail ou senha incorretos. |
 | 403 | `SEM_PERMISSAO` | Papel sem permissão **dentro do próprio tenant** (ex.: consultor em `/conta/*`, T-LGPD-01) | Seu perfil não tem permissão para isso. |
-| 404 | `NAO_ENCONTRADO` | Recurso inexistente **ou de outro tenant**: mesmo status e mesmo corpo (regra 5, T-ISO-05) | Contato não encontrado. / Importação não encontrada. |
+| 404 | `NAO_ENCONTRADO` | Recurso inexistente **ou de outro tenant**: mesmo status e mesmo corpo (regra 5, T-ISO-05). Em rota com `:id`, a API registra no log o evento `recurso_nao_encontrado` (`tenant_id`, `metodo`, `rota`, `id`); a resposta não muda (T-ISO-19) | Contato não encontrado. / Importação não encontrada. |
 | 409 | `EMAIL_JA_CADASTRADO` | Cadastro com e-mail de usuário que já existe | Esse e-mail já tem conta. |
 | 409 | `EMAIL_DUPLICADO` | Contato com e-mail já usado no mesmo tenant | Já existe um contato com esse e-mail. |
 | 413 | `ARQUIVO_GRANDE` | Corpo acima de 1 MB (1.048.576 bytes) | O arquivo passa de 1 MB. Divida a planilha em partes menores. |
@@ -278,7 +278,7 @@ Mudanças da 1.1 (Fase 0 do bloco 13): `GET /planos/atual` virou `GET /planos` p
 
 - Tudo vem do `planos.js`, que passa a guardar também o preço. O tamanho máximo vem da configuração do `bodyLimit`.
 - **Preço em centavos (inteiro):** dinheiro em ponto flutuante acumula erro de arredondamento; o Portal formata com `Intl.NumberFormat('pt-BR', {style: 'currency', currency: 'BRL'})`.
-- **Pública** porque a tela de cadastro precisa mostrar os planos antes de existir um token. Não tem dado de tenant: é a mesma resposta para qualquer pessoa. Por isso fica fora da tabela do T-ISO-15, como `/auth/*` e `/saude`.
+- **Pública** porque a tela de cadastro precisa mostrar os planos antes de existir um token. Não tem dado de tenant: é a mesma resposta para qualquer pessoa. Por isso fica fora da tabela de rotas de tenant do T-ISO-15 e entra na lista fixa de rotas públicas do mesmo teste, como `/auth/*` e `/saude`.
 - **Sem rate limit** (seção 1): só lê memória.
 - **Como o Portal usa:**
   - no cadastro, mostra os cartões dos planos com preço, usuários, linhas por importação e importações simultâneas. Nada de recurso que ainda não existe (propostas, webhooks, histórico);
