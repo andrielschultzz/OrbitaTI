@@ -88,6 +88,19 @@
     outline-offset: 2px;
   }
 
+  /* Foco nunca atrás da barra inferior fixa (WCAG 2.4.11). Ao navegar com Tab, o navegador rola
+     só até o elemento encostar na borda da tela, ou seja, atrás da barra + botão "+". Esta folga
+     faz a rolagem parar acima deles. 8.5rem = barra (~4.5rem) + botão (3.5rem) + respiro.
+     No desktop (lg) não há barra inferior. Achado pelo checklist da Fase 5. */
+  html {
+    scroll-padding-bottom: calc(8.5rem + env(safe-area-inset-bottom));
+  }
+  @media (min-width: 64rem) {
+    html {
+      scroll-padding-bottom: 0;
+    }
+  }
+
   button,
   [role="button"],
   a[href],

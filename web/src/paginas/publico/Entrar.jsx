@@ -93,7 +93,7 @@ export default function Entrar() {
       </form>
       <p className="text-center text-texto-secundario">
         Ainda não tem conta?{' '}
-        <Link to="/cadastro" className="font-semibold text-primario underline-offset-4 hover:underline">
+        <Link to="/cadastro" className="inline-flex min-h-11 items-center font-semibold text-primario underline-offset-4 hover:underline">
           Criar conta
         </Link>
       </p>

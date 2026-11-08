@@ -15,7 +15,9 @@
     "preview": "vite preview",
     "test": "vitest run",
     "icones": "node scripts/gerar-icones.js",
-    "capturas:marca": "node scripts/capturar-marca.js"
+    "capturas:marca": "node scripts/capturar-marca.js",
+    "test:e2e": "playwright test --project=e2e",
+    "capturas": "playwright test --project=capturas"
   },
   "dependencies": {
     "@fontsource/inter": "5.3.0",

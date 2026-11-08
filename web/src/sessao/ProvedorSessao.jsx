@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router';
 import { definirAoSessaoExpirar } from '../api/cliente.js';
-import { limparSessao, salvarToken, sessaoAtual } from '../api/sessao.js';
+import { limparSessao, salvarToken, sessaoAtual, tokenGuardado } from '../api/sessao.js';
 import { useToast } from '../componentes/Toasts.jsx';
 
 // Sessão: token de 15 min, sem refresh (decisão registrada). Quando vence, o usuário entra de novo
@@ -10,11 +10,19 @@ const ContextoSessao = createContext(null);
 const AVISO_ANTES_MS = 60 * 1000;
 
 export function ProvedorSessao({ children }) {
-  const [sessao, setSessao] = useState(() => sessaoAtual());
+  // Lido uma vez, ao abrir: se havia token na aba e ele não vale mais (venceu com a aba fechada ou
+  // está ilegível), a sessão EXPIROU; não é alguém que nunca entrou. Sem isso, reabrir a aba depois de
+  // 15 min levava ao login sem o aviso (achado pelo E2E de sessão).
+  const [inicio] = useState(() => {
+    const havia = tokenGuardado() !== null;
+    const atual = sessaoAtual(); // apaga o token vencido
+    return { sessao: atual, motivo: havia && !atual ? 'expirada' : null };
+  });
+  const [sessao, setSessao] = useState(inicio.sessao);
   // Por que a sessão acabou: 'expirada' (token venceu ou API respondeu 401) ou null (saiu/nunca entrou).
   // Quem redireciona é SÓ a RotaProtegida, lendo este motivo. Antes havia dois redirecionamentos
   // (aqui e lá) e o segundo apagava o "?sessao=expirada" da URL, sumindo com o aviso.
-  const [motivo, setMotivo] = useState(null);
+  const [motivo, setMotivo] = useState(inicio.motivo);
   const navegar = useNavigate();
   const { mostrar } = useToast();
 

@@ -34,7 +34,7 @@ export default function Casca() {
       {/* Invólucro com altura total (borda e fundo até o fim da página); o menu dentro fica fixo. */}
       <div className="hidden border-r border-borda-sutil bg-superficie/60 lg:block">
       <aside className="sticky top-0 flex h-dvh flex-col gap-8 px-4 py-6">
-        <Link to="/contatos" className="px-2" aria-label="OrbitaTI, ir para Contatos">
+        <Link to="/contatos" className="inline-flex min-h-11 items-center px-2" aria-label="OrbitaTI, ir para Contatos">
           <MarcaHorizontal tamanho="sm" />
         </Link>
         <Link to={NOVO_CONTATO} className="botao botao-primario">
@@ -66,7 +66,7 @@ export default function Casca() {
 
       {/* Topo (celular) */}
       <header className="flex h-14 items-center px-4 lg:hidden">
-        <Link to="/contatos" aria-label="OrbitaTI, ir para Contatos">
+        <Link to="/contatos" className="inline-flex min-h-11 items-center" aria-label="OrbitaTI, ir para Contatos">
           <MarcaHorizontal tamanho="sm" />
         </Link>
       </header>
@@ -74,7 +74,11 @@ export default function Casca() {
       <main
         id="conteudo"
         tabIndex={-1}
-        className="mx-auto w-full max-w-5xl px-4 pt-2 pb-[calc(6.5rem+env(safe-area-inset-bottom))] outline-none md:px-6 lg:px-10 lg:py-8"
+        // Folga no fim para o último item poder rolar para cima da barra inferior; com o botão "+",
+        // a folga cobre também o botão (senão o último contato da lista fica atrás dele).
+        className={`mx-auto w-full max-w-5xl px-4 pt-2 outline-none md:px-6 lg:px-10 lg:py-8 ${
+          mostrarMais ? 'pb-[calc(9rem+env(safe-area-inset-bottom))]' : 'pb-[calc(6.5rem+env(safe-area-inset-bottom))]'
+        }`}
       >
         {/* Suspense aqui dentro: trocar de tela não faz o menu piscar, só o conteúdo carrega. */}
         <Suspense fallback={<div className="min-h-[60dvh]" aria-busy="true" />}>

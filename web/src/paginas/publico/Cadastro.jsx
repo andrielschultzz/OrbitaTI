@@ -168,7 +168,7 @@ export default function Cadastro() {
     erros.email === 'ja-cadastrado' ? (
       <>
         Esse e-mail já tem conta.{' '}
-        <Link to="/entrar" className="font-semibold underline underline-offset-2">
+        <Link to="/entrar" className="inline-flex min-h-11 items-center font-semibold underline underline-offset-2">
           Quer entrar?
         </Link>
       </>
@@ -245,7 +245,7 @@ export default function Cadastro() {
       </form>
       <p className="text-center text-texto-secundario">
         Já tem conta?{' '}
-        <Link to="/entrar" className="font-semibold text-primario underline-offset-4 hover:underline">
+        <Link to="/entrar" className="inline-flex min-h-11 items-center font-semibold text-primario underline-offset-4 hover:underline">
           Entrar
         </Link>
       </p>

@@ -50,18 +50,23 @@ export function limparSessao() {
   }
 }
 
-/**
- * Sessão válida agora, ou null. Token vencido é apagado na hora: abrir o Portal com o token
- * vencido leva direto ao login, sem uma requisição que já se sabe que vai dar 401.
- */
-export function sessaoAtual(agora = Date.now()) {
+/** O token guardado na aba, sem validar (para saber se HAVIA uma sessão que venceu). */
+export function tokenGuardado() {
   let token = null;
   try {
     token = armazenamento()?.getItem(CHAVE) ?? null;
   } catch {
     /* sem storage */
   }
-  token ??= tokenEmMemoria;
+  return token ?? tokenEmMemoria;
+}
+
+/**
+ * Sessão válida agora, ou null. Token vencido é apagado na hora: abrir o Portal com o token
+ * vencido leva direto ao login, sem uma requisição que já se sabe que vai dar 401.
+ */
+export function sessaoAtual(agora = Date.now()) {
+  const token = tokenGuardado();
   if (!token) return null;
   const claims = decodificarToken(token);
   if (!claims || claims.exp * 1000 <= agora) {
