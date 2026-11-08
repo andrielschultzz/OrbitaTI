@@ -60,6 +60,9 @@ docs/
 ├── ensaios/                     # relatórios de ensaios (ex.: Lighthouse do Portal)
 └── atividades/
     └── enc06-andriel.md         # atividade dirigida do Encontro 06
+services/api-contatos/           # API (Fastify 5): auth, contatos; src/app.js exporta buildApp()
+db/                              # papéis (init/), migrações SQL e a imagem orbitati/migrate
+tests/                           # testes de integração (rls, auth, contatos), contra a stack no ar
 web/                             # Portal Web (SPA React + nginx), pacote independente
 ├── src/                         # telas, cliente HTTP, sessão, design system em código
 ├── simulador/                   # simulador do contrato (o Portal roda sem a API)
@@ -69,20 +72,34 @@ web/                             # Portal Web (SPA React + nginx), pacote indepe
 └── Dockerfile                   # build Node 22 -> nginx não-root na porta 8080
 ```
 
-## Infraestrutura local (banco e fila)
+## Stack local (banco, fila e API)
 
 Requisitos: Node.js 22 ou mais novo e Docker Desktop. Na raiz do repositório:
 
 ```
-npm install                          # Vitest e pg para os testes de integração
+npm install                          # Vitest e pg (testes) e as dependências dos services/*
 npm run env                          # cria o .env com senhas aleatórias (ou copie o .env.example)
-docker compose up -d --wait          # Postgres 16 e Redis 7 saudáveis
-docker compose run --rm migrate      # aplica migrações pendentes (rodar de novo não aplica nada)
+docker compose up -d --build --wait  # Postgres, Redis, migrações e API, nesta ordem, todos prontos
+curl.exe -s http://localhost:3000/saude   # {"db":"ok"}
 npm test                             # testes de integração (tests/), contra a stack no ar
+docker compose run --rm migrate      # (opcional) aplica só as migrações pendentes
 ```
 
-O Postgres fica publicado só em `127.0.0.1:5432`: os testes rodam no host e precisam dele, mas ninguém
-da rede alcança a porta. O Redis não é publicado.
+**Ordem de subida.** O `migrate` é um job: roda, aplica o que falta e sai. A `api-contatos` depende dele
+com `service_completed_successfully`, então só sobe depois que as migrações terminaram bem, e nunca roda
+contra um schema velho. Com essa dependência, o `up --wait` entende o `Exited (0)` do migrate como
+sucesso; se uma migração falhar, o `up` sai com erro e a API nem inicia. Cada `up` roda o migrate de novo,
+o que é seguro porque ele é idempotente.
+
+**Portas.** O Postgres (`5432`) e a API (`3000`) ficam publicados só em `127.0.0.1`: os testes rodam no
+host e precisam deles, mas ninguém da rede alcança as portas. Na VM, só o Portal fica exposto. O Redis
+não é publicado. Se o `up` falhar com `port is already allocated`, outro programa ou contêiner está
+usando a porta (`docker ps` mostra qual).
+
+**Imagem da API.** O build usa a raiz do repositório como contexto, porque com npm workspaces o
+`package-lock.json` fica lá. O `.dockerignore` da raiz deixa `.env`, `.git`, `node_modules` e `web/` de
+fora. O contêiner roda como usuário `node`, com sistema de arquivos só leitura (`/tmp` em memória), sem
+capabilities do Linux e com `no-new-privileges`.
 
 **O `.env` e as senhas do banco.** As senhas dos papéis (`migrador`, `api_contatos`, `importacao_svc`)
 são gravadas **só no primeiro boot** do Postgres, quando o volume `pgdados` está vazio

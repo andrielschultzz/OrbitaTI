@@ -1,0 +1,19 @@
+# Vale para os builds com contexto na RAIZ (services/*/Dockerfile). O db/ e o web/ têm contexto próprio.
+#
+# O mais importante: .env tem as senhas reais e NUNCA pode entrar numa imagem.
+.env
+.env.*
+!.env.example
+
+.git
+**/node_modules
+web
+docs
+prompts
+tests
+scripts
+db
+deploy
+Claude outputs
+.claude
+*.md

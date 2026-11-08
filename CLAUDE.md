@@ -48,7 +48,7 @@ db/init/                 cria papéis do Postgres (roda só no primeiro boot)
 db/migrations/           schemas, tabelas, RLS, grants
 db/migrate.js            aplica migrações (imagem orbitati/migrate: db/Dockerfile, pacote próprio fora dos workspaces)
 deploy/k8s/              manifests do kind
-tests/                   testes de integração (isolamento, RLS, importação)
+tests/                   testes de integração (isolamento, RLS, importação); tests/apoio/ = funções comuns (não são testes)
 tests/carga/             k6 (CQ-01)
 scripts/                 demo de isolamento e utilitários (PowerShell)
 web/                     Portal Web: SPA React (src/), nginx (nginx/), Dockerfile, design system

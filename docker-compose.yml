@@ -1,8 +1,8 @@
-# OrbitaTI: stack local. Bloco 1: postgres, redis e o job de migrações.
-# A API (bloco 2), o worker (bloco 4) e o Portal (bloco 13, Fase 6) entram aqui depois.
+# OrbitaTI: stack local. postgres, redis, migrate (job) e api-contatos.
+# O worker (bloco 4) e o Portal (bloco 13, Fase 6) entram aqui depois.
 #
-#   docker compose up -d --wait        sobe postgres e redis (saudáveis)
-#   docker compose run --rm migrate    aplica migrações pendentes
+#   docker compose up -d --build --wait   sobe tudo; o migrate roda e SAI antes de a API subir
+#   docker compose run --rm migrate       aplica só as migrações pendentes
 #
 # Variáveis vêm do .env (copie o .env.example ou rode `npm run env`).
 
@@ -45,10 +45,10 @@ services:
     # host. É a mesma imagem orbitati/migrate que o kind (bloco 6) reaproveita.
     build: ./db
     image: orbitati/migrate:0.1.0
-    # Perfil próprio: o `up -d --wait` não sobe o migrate. Ele roda e SAI, e o --wait trata qualquer
-    # contêiner que sai como falha (exit 1 mesmo com "exited (0)"). Roda com `docker compose run --rm migrate`.
-    # Bloco 2: quando a API tiver depends_on migrate (service_completed_successfully), rever este perfil.
-    profiles: ["ferramentas"]
+    # Job: roda, aplica o que falta e SAI. Sem perfil desde o bloco 2: a api-contatos depende dele com
+    # service_completed_successfully, e com isso o `up --wait` entende que "Exited (0)" é sucesso, não
+    # falha (testado no Compose v5.3.1). Se a migração falhar (exit 1), o `up` falha e a API nem inicia.
+    # Cada `up` roda o migrate de novo; é seguro porque o migrate.js é idempotente.
     environment:
       DATABASE_URL: ${DATABASE_URL_MIGRADOR:?defina DATABASE_URL_MIGRADOR no .env}
     volumes:
@@ -59,6 +59,42 @@ services:
       postgres:
         condition: service_healthy
     restart: "no"
+
+  api-contatos:
+    # Contexto na raiz: o lockfile dos workspaces fica lá (ver o Dockerfile e o .dockerignore).
+    build:
+      context: .
+      dockerfile: services/api-contatos/Dockerfile
+    image: orbitati/api-contatos:0.1.0
+    environment:
+      DATABASE_URL_API: ${DATABASE_URL_API:?defina DATABASE_URL_API no .env}
+      JWT_SEGREDO: ${JWT_SEGREDO:?defina JWT_SEGREDO no .env}
+    # Só 127.0.0.1: os testes e o curl rodam no host. Na VM, só o Portal fica exposto; a API é
+    # alcançada pelo proxy /api do nginx, dentro da rede do compose.
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      # Só sobe depois que as migrações terminaram com sucesso: nunca roda contra um schema velho.
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      # wget vem no Alpine (busybox). /saude responde 503 com o banco fora, e o wget falha: unhealthy.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/saude"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+    # Endurecimento: sistema de arquivos só leitura (a API não grava nada), com /tmp em memória para
+    # biblioteca que precise de arquivo temporário; nenhuma capability do Linux; sem escalar privilégio.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
 
 volumes:
   pgdados:

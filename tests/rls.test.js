@@ -5,7 +5,7 @@
 // montada com as senhas do .env. As URLs do .env usam o host "postgres", que só existe dentro do compose.
 //
 // Cada execução cria os próprios tenants (UUID e e-mails únicos) e apaga tudo no fim.
-// Pré-requisito: docker compose up -d --wait  e  docker compose run --rm migrate
+// Pré-requisito: docker compose up -d --build --wait  (o migrate roda antes da API, dentro do up)
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import pg from 'pg';
