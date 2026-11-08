@@ -168,7 +168,7 @@
      - cada contato frio é um ponto, mais longe quanto maior o `dias_sem_interacao`: 90 dias no anel interno, 365 ou mais no externo;
      - tocar no ponto abre o contato.
 
-     A lista ao lado ou abaixo é o conteúdo principal e acessível: nome, empresa e "há N dias sem contato" (ou "cadastrado há N dias, nunca contatado", quando `nunca_contatado`). O SVG complementa, com `role="img"` e uma descrição. Com `prefers-reduced-motion`, nada se mexe; sem essa preferência, no máximo uma rotação lenta e sutil.
+     A lista ao lado ou abaixo é o conteúdo principal e acessível: nome, empresa e "há N dias sem contato" (ou "cadastrado há N dias, nunca contatado", quando `nunca_contatado`). O SVG complementa, com `role="img"` e uma descrição. O mapa é **estático**, com ou sem `prefers-reduced-motion` (decisão de 07/11/2026: a rotação lenta que existia era movimento automático de mais de 5 s sem botão de pausa, o que não atende a WCAG 2.2.2, e gastava bateria no celular).
    - **Busca:** debounce de 300 ms e cancelamento da busca anterior. Isso protege o rate limit e o banco; é a busca que o CQ-01 mede. Se vierem `limite` itens, mostre "mostrando os primeiros {limite} — refine a busca".
    - **"Novo contato" em menos de 30 s:** uma folha ou modal com só três campos:
      - Nome: obrigatório, com foco automático;
