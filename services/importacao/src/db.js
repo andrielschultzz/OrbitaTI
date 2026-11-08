@@ -5,8 +5,15 @@
 // serviço independente. O worker é tão sujeito ao RLS quanto a API (ADR-003): sem tenant, vê 0 linhas.
 import pg from 'pg';
 
-export function criarPool(connectionString) {
-  return new pg.Pool({ connectionString, max: 4, connectionTimeoutMillis: 2_000, idleTimeoutMillis: 30_000 });
+/**
+ * pool.on('error') é OBRIGATÓRIO (achado K7, docs/pendencias-bloco-7.md): quando o Postgres cai, ele
+ * encerra as conexões ociosas e o pg emite 'error'. Sem ouvinte, o Node derruba o worker. Com ele, a
+ * conexão quebrada é descartada e o worker espera o banco voltar (readiness 503 no /saude, T-RES-07).
+ */
+export function criarPool(connectionString, log) {
+  const pool = new pg.Pool({ connectionString, max: 4, connectionTimeoutMillis: 2_000, idleTimeoutMillis: 30_000 });
+  pool.on('error', (erro) => log.warn({ evento: 'banco_conexao_perdida', err: erro.message }, 'banco: conexão ociosa perdida'));
+  return pool;
 }
 
 /** Roda fn(cliente) numa transação com app.tenant_id fixado (set_config(..., true) = SET LOCAL). */

@@ -4,14 +4,24 @@
 // nessas tabelas: sem app.tenant_id, o RLS esconde todas as linhas (e um INSERT falha no WITH CHECK).
 import pg from 'pg';
 
-/** Pool da API. connectionTimeoutMillis curto: com o banco fora, o /saude responde 503 em ~2 s, não trava. */
-export function criarPool(connectionString) {
-  return new pg.Pool({
+/**
+ * Pool da API. connectionTimeoutMillis curto: com o banco fora, o /saude responde 503 em ~2 s, não trava.
+ *
+ * pool.on('error') é OBRIGATÓRIO (achado K7, docs/pendencias-bloco-7.md). Quando o Postgres cai ou
+ * reinicia, ele encerra as conexões OCIOSAS do pool, e o pg avisa com o evento 'error'. No Node, evento
+ * 'error' sem ouvinte derruba o processo: no kind, as 2 réplicas reiniciavam juntas a cada queda do
+ * banco. Com o ouvinte, o pg só descarta a conexão quebrada e abre outra quando o banco voltar; enquanto
+ * isso o /saude responde 503 e a readiness tira a réplica do Service, sem reiniciar nada (T-RES-07).
+ */
+export function criarPool(connectionString, log) {
+  const pool = new pg.Pool({
     connectionString,
     max: 10,
     connectionTimeoutMillis: 2_000,
     idleTimeoutMillis: 30_000,
   });
+  pool.on('error', (erro) => log.warn({ evento: 'banco_conexao_perdida', err: erro.message }, 'banco: conexão ociosa perdida'));
+  return pool;
 }
 
 /**

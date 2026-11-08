@@ -1,0 +1,38 @@
+# Job de migrações (equivale ao serviço "migrate" do compose). Roda db/migrate.js e sai.
+#
+# Imagem orbitati/migrate:0.1.0 (db/Dockerfile), a mesma do compose e do CI: traz o pg e as migrações.
+# Um Job concluído não roda de novo e o spec dele não pode ser alterado; por isso o deploy-kind.ps1
+# apaga o Job antes de aplicar. Rodar a cada deploy é seguro: o migrate.js é idempotente.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migrate
+  namespace: orbitati
+spec:
+  backoffLimit: 2
+  # Some sozinho 1 h depois de terminar (o log fica disponível até lá).
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: migrate
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000   # usuário "node" da imagem (precisa ser numérico para o runAsNonRoot conferir)
+      containers:
+        - name: migrate
+          image: orbitati/migrate:0.1.0
+          imagePullPolicy: IfNotPresent
+          env:
+            # Só a senha do migrador existe neste pod (ver o comentário de risco em db/init/01-papeis.sh).
+            - name: DATABASE_URL
+              valueFrom: { secretKeyRef: { name: orbitati-segredos, key: DATABASE_URL_MIGRADOR } }
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { cpu: 250m, memory: 128Mi }
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }

@@ -1,0 +1,99 @@
+# API de Contatos: 2 réplicas atrás do Service NodePort 30080 (o kind publica 30080 no localhost).
+#
+# Probes (diferença importante em relação ao compose):
+#   readiness  GET /saude  -> 503 com o banco fora: o pod sai do Service, mas NÃO é reiniciado.
+#   liveness   TCP :3000   -> só "o processo está vivo e escutando". Não depende do banco: se dependesse,
+#                             um banco fora faria o Kubernetes reiniciar TODAS as réplicas em loop, sem
+#                             consertar nada (o problema está no banco, não na API).
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-contatos
+  namespace: orbitati
+spec:
+  type: NodePort
+  selector:
+    app: api-contatos
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+      nodePort: 30080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-contatos
+  namespace: orbitati
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: api-contatos
+  template:
+    metadata:
+      labels:
+        app: api-contatos
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000   # usuário "node" da imagem
+      containers:
+        - name: api-contatos
+          image: orbitati/api-contatos:0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000
+          # Pausa de 5 s ANTES do SIGTERM. Sem ela, num rollout o app.close() recusa conexões enquanto o
+          # kube-proxy ainda manda tráfego para este pod (os endpoints levam alguns segundos para
+          # atualizar) e o cliente recebe "connection refused". Visto na prática: o seed logo depois de
+          # um `rollout restart` falhou com "API fora do ar". O sleep é o do busybox da imagem alpine.
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sleep", "5"]
+          env:
+            # Só as chaves de que a API precisa (menor privilégio), como no compose.
+            - name: DATABASE_URL_API
+              valueFrom: { secretKeyRef: { name: orbitati-segredos, key: DATABASE_URL_API } }
+            - name: JWT_SEGREDO
+              valueFrom: { secretKeyRef: { name: orbitati-segredos, key: JWT_SEGREDO } }
+            - name: JWT_SERVICO_SEGREDO
+              valueFrom: { secretKeyRef: { name: orbitati-segredos, key: JWT_SERVICO_SEGREDO } }
+            - name: REDIS_URL
+              valueFrom: { secretKeyRef: { name: orbitati-segredos, key: REDIS_URL } }
+            # 0, e não 1 (decisão J6 em docs/pendencias-bloco-7.md): a API está exposta DIRETO pelo
+            # NodePort, e o NAT do kind faz toda conexão chegar com IP interno. Com 1, qualquer cliente
+            # de localhost:30080 forjaria o X-Forwarded-For. Vira 1 quando o nginx do Portal entrar na frente.
+            - name: TRUST_PROXY_SALTOS
+              value: "0"
+            - name: LIMITE_CADASTRO_POR_MIN
+              value: "60"
+          readinessProbe:
+            httpGet:
+              path: /saude
+              port: 3000
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          # Pequenos, como no Lab 04. O argon2 do login usa ~19 MiB por hash; o limite deixa folga.
+          resources:
+            requests: { cpu: 50m, memory: 96Mi }
+            limits: { cpu: 500m, memory: 256Mi }
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: { medium: Memory, sizeLimit: 16Mi }

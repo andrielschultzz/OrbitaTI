@@ -3,7 +3,7 @@
   Demonstração ao vivo da degradação controlada (bloco 5): quando um serviço cai, o resto do CRM segue.
 
 .DESCRIPTION
-  Ensaios T-RES-01 a T-RES-05 do plano de testes, com a conta TechConsult Solutions do npm run seed.
+  Ensaios T-RES-01 a T-RES-05 (e a versão compose do T-RES-07) do plano de testes, com a conta TechConsult Solutions do npm run seed.
 
   Parte 1: o worker de importação cai
     1. Mostra o GET /saude e para o serviço importacao (docker compose stop importacao).
@@ -14,6 +14,10 @@
     5. Para o Redis: POST /importacoes -> 503 em menos de 2 s, sem registro órfão (T-RES-03).
     6. Login, busca, CRUD de contato e /saude seguem respondendo; o rate limit é ignorado (T-RES-04).
     7. Sobe o Redis: a importação volta a funcionar SEM reiniciar a API (T-RES-05).
+  Parte 3: o banco cai (T-RES-07, achado K7)
+    8. Para o Postgres: /saude -> 503 {"db":"fora"}, e nem a API nem o worker reiniciam (StartedAt igual).
+       Antes da correção do K7, o pg.Pool sem ouvinte de 'error' derrubava os dois processos.
+    9. Sobe o Postgres: /saude volta a 200 e o CRUD de contato funciona, ainda sem reiniciar nada.
 
   No fim, apaga os contatos que a demo criou. Se o script parar no meio, religa o que tiver parado.
   Sai com código 0 se tudo saiu como esperado e 1 se houve falha.
@@ -184,9 +188,11 @@ function ImportacoesNoBanco {
   return [int]("$n".Trim())
 }
 
-function PartidaDaApi {
+# Horário em que o contêiner (re)começou. Com restart: unless-stopped, um processo que morre é religado
+# pelo Docker e esse horário muda: é assim que se vê um crash que o compose "esconde".
+function Partida([string]$Servico = 'api-contatos') {
   $ErrorActionPreference = 'Continue'
-  $id = & docker compose ps -q api-contatos 2>$null
+  $id = & docker compose ps -q $Servico 2>$null
   return (& docker inspect -f '{{.State.StartedAt}}' $id 2>$null)
 }
 
@@ -243,7 +249,7 @@ try {
   Pausa
 
   Passo '8. T-RES-05: o Redis volta e a importação funciona sem reiniciar a API'
-  $partidaAntes = PartidaDaApi
+  $partidaAntes = Partida
   Religar redis
   # A API reconecta sozinha (espera crescente até 5 s). Espera o /saude mostrar a fila de volta.
   $limite = (Get-Date).AddSeconds(30)
@@ -254,12 +260,42 @@ try {
   Write-Host ("  GET /saude -> HTTP {0} {1}" -f $s.Status, ($s.Corpo | ConvertTo-Json -Compress))
   $imp = Importar
   Conferir 'POST /importacoes -> 202' ($imp.Status -eq 202) "HTTP $($imp.Status)"
-  $partidaDepois = PartidaDaApi
+  $partidaDepois = Partida
   Conferir 'a API não foi reiniciada (mesmo horário de partida)' ($partidaAntes -eq $partidaDepois) "$partidaDepois"
   if ($imp.Status -eq 202) {
     $final = EsperarConclusao $imp.Corpo.importacao_id
     Conferir 'importação concluida' ($final.status -eq 'concluida') "status: $($final.status)"
   }
+  Pausa
+
+  # ------------------------------------------------------------------------------------------------
+  Passo '9. T-RES-07: o banco cai -> /saude 503, e a API e o worker NÃO reiniciam'
+  # O passo 8 acabou de usar o banco: o pool da API tem conexões ociosas, justamente as que o Postgres
+  # derruba ao parar (o caso que matava o processo antes do K7).
+  $apiAntes = Partida 'api-contatos'
+  $workerAntes = Partida 'importacao'
+  Parar postgres
+  # Tempo para um eventual crash aparecer (o Docker religaria o contêiner e o StartedAt mudaria).
+  Start-Sleep -Seconds 5
+  $saude = MostrarSaude
+  Conferir '/saude -> HTTP 503 com db "fora"' ($saude.Status -eq 503 -and $saude.Corpo.db -eq 'fora') ''
+  Conferir 'a API não reiniciou (mesmo StartedAt)' ($apiAntes -eq (Partida 'api-contatos')) "$apiAntes"
+  Conferir 'o worker não reiniciou (mesmo StartedAt)' ($workerAntes -eq (Partida 'importacao')) "$workerAntes"
+  Pausa
+
+  Passo '10. O banco volta: tudo responde de novo, sem reiniciar nada'
+  Religar postgres
+  # O pool abre conexões novas na próxima query; espera o Postgres aceitar conexões.
+  $limite = (Get-Date).AddSeconds(60)
+  do {
+    Start-Sleep -Seconds 1
+    $s = Chamar GET '/saude' -Token ''
+  } while ($s.Corpo.db -ne 'ok' -and (Get-Date) -lt $limite)
+  Write-Host ("  GET /saude -> HTTP {0} {1}" -f $s.Status, ($s.Corpo | ConvertTo-Json -Compress))
+  Conferir '/saude -> HTTP 200 com db "ok"' ($s.Status -eq 200 -and $s.Corpo.db -eq 'ok') ''
+  CrudContato 'banco de volta'
+  Conferir 'a API continua sem reiniciar' ($apiAntes -eq (Partida 'api-contatos')) ''
+  Conferir 'o worker continua sem reiniciar' ($workerAntes -eq (Partida 'importacao')) ''
 } finally {
   # Nunca deixa a stack pela metade, nem quando o script falha no meio.
   foreach ($servico in @($script:Parados.Keys)) {

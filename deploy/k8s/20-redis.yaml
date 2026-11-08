@@ -1,0 +1,63 @@
+# Redis 7: fila do BullMQ e contadores do rate limit (equivale ao serviço "redis" do compose).
+# Sem volume persistente, como no compose: jobs perdidos num restart do Redis são o cenário já
+# coberto pelo bloco 4 (seção 7.1 de docs/pendencias-bloco-7.md).
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: orbitati
+spec:
+  selector:
+    app: redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: orbitati
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999   # usuário "redis" da imagem alpine
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 6379
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            tcpSocket:
+              port: 6379
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 50m, memory: 32Mi }
+            limits: { cpu: 250m, memory: 128Mi }
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - name: dados
+              mountPath: /data
+      volumes:
+        - name: dados
+          emptyDir: {}
