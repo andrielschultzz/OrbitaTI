@@ -55,9 +55,10 @@ db/migrations/           schemas, tabelas, RLS, grants
 db/migrate.js            aplica migrações (imagem orbitati/migrate: db/Dockerfile, pacote próprio fora dos workspaces)
 deploy/k8s/              manifests do kind (namespace orbitati), aplicados pelo scripts/deploy-kind.ps1; exemplos/ = Secret com valores falsos (fora do apply)
 tests/                   testes de integração (isolamento, RLS, importação, confirmação de e-mail, CQ-03); tests/apoio/ = funções comuns, inclusive mailpit.js (não são testes)
-docs/ensaios/            relatórios datados de medição (CQ-01, CQ-03, Lighthouse)
+docs/ensaios/            relatórios datados de medição (CQ-01, CQ-03, CQ-04, CQ-05, Lighthouse); cq04-*-amostras.csv = CSV da sonda
+backups/                 dumps e CSVs do bloco 11 (FORA do git: dado pessoal); criado pelo backup.ps1
 tests/carga/             k6 (CQ-01): cq01.js (cenários), janelas.js (veredito "na janela" x "geral") e teste; resultados/ = saída do medir-cq01.ps1 (k6.json fora do git)
-scripts/                 seed.js (contas de demo), deploy-kind.ps1 (bloco 6), demo-isolamento.ps1, demo-degradacao.ps1 (T-RES), ensaio-reprocessamento.ps1 (T-IMP-14), medir-cq01.ps1 (CQ-01, bloco 9) e utilitários
+scripts/                 seed.js (contas de demo), deploy-kind.ps1 (bloco 6), demo-isolamento.ps1, demo-degradacao.ps1 (T-RES), ensaio-reprocessamento.ps1 (T-IMP-14), medir-cq01.ps1 (CQ-01, bloco 9), backup.ps1, ensaio-restauracao.ps1, restaurar-um-tenant.ps1 e sonda.ps1 (bloco 11; lib-ensaio.ps1 = funções comuns; sql/ = consultas que eles rodam) e utilitários
 web/                     Portal Web: SPA React (src/), nginx (nginx/), Dockerfile, design system
 web/simulador/           simulador do contrato (docs/contrato-api.md) para o Portal rodar sem a API; fora da imagem
 web/e2e/                 E2E e capturas (Playwright); capturas em web/e2e/capturas/ (fora do git)
@@ -76,6 +77,10 @@ npm run seed                          # tenants de demonstração DevSolo e Tech
 powershell -ExecutionPolicy Bypass -File .\scripts\demo-isolamento.ps1 [-SemPausa] [-BaseUrl <url>]
 powershell -ExecutionPolicy Bypass -File .\scripts\demo-degradacao.ps1 [-SemPausa]   # para importacao, redis e postgres e religa (T-RES-01 a 07; o 06 é o cadastro sem a fila de e-mail)
 powershell -ExecutionPolicy Bypass -File .\scripts\ensaio-reprocessamento.ps1 [-Quedas 2]  # T-IMP-14: mata o worker no meio de 5.000 linhas (1 a 3 min)
+powershell -ExecutionPolicy Bypass -File .\scripts\backup.ps1               # CQ-05: pg_dump -Fc + foto da origem em backups/
+powershell -ExecutionPolicy Bypass -File .\scripts\ensaio-restauracao.ps1 [-SemPapeis]   # CQ-05: restaura o último backup no postgres-ensaio, verifica e remove
+powershell -ExecutionPolicy Bypass -File .\scripts\restaurar-um-tenant.ps1 -Email <admin>  # CSVs do tenant no formato do modelo de importação
+powershell -ExecutionPolicy Bypass -File .\scripts\sonda.ps1 [-Url http://127.0.0.1:30080/saude] [-Minutos 60] [-IntervaloSegundos 15]  # CQ-04 (127.0.0.1, nunca localhost: O1)
 powershell -ExecutionPolicy Bypass -File .\scripts\medir-cq01.ps1 [-RecursosProducao] [-ManterDados]   # CQ-01 com e sem mitigação (~8 min); no fim devolve o worker a 100/500, apaga os tenants e (com -RecursosProducao) recria o postgres sem limite
 docker compose --profile carga run --rm k6 run /scripts/cq01.js   # só o k6 (grafana/k6:1.3.0), na rede do compose
 npx vitest run tests/cq03-onboarding.test.js   # só o CQ-03 (20 cadastros; imprime p50, p90 e máximo)
