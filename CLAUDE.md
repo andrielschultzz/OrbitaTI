@@ -44,6 +44,7 @@ Se uma tarefa exigir contrariar um ADR, **pare e pergunte**. Não mude a decisã
 ## Estrutura
 
 ```
+.github/workflows/ci.yml GitHub Actions: job api (compose + npm test com TESTES_LENTOS=1) e job web (unitários, build, E2E contra o simulador)
 services/api-contatos/   porta de entrada: auth, contatos, importações, /planos, rotas /interno; test/ = unitários sem stack (T-ISO-13, T-OBS-03, T-RES-07)
 services/importacao/     worker BullMQ: lê o CSV do job, valida, envia lotes à API; /saude interno na 3001 (sem porta publicada); test/ = unitários sem stack
 db/init/                 cria papéis do Postgres (roda só no primeiro boot)

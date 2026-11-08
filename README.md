@@ -1,5 +1,7 @@
 # OrbitaTI
 
+[![CI](https://github.com/andrielschultzz/OrbitaTI/actions/workflows/ci.yml/badge.svg)](https://github.com/andrielschultzz/OrbitaTI/actions/workflows/ci.yml)
+
 CRM enxuto e multi-tenant para profissionais de TI autônomos e consultorias de até dez pessoas.
 
 **Disciplina:** Arquitetura de Software SaaS (8512) — EC6, SETREM 2026-2
@@ -64,9 +66,29 @@ Premissas declaradas em 12 meses, usadas em todos os artefatos:
 | Volume de dados estruturados | ~111 MB |
 | Custo de banco em pool | R$ 120/mês — 3% da receita |
 
+## Integração contínua
+
+O GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) roda a cada `push` (qualquer branch)
+e a cada `pull_request` (inclusive de fork). São dois jobs em paralelo, cada um com limite de 15 minutos:
+
+| Job | O que faz |
+|---|---|
+| `api` | Copia o `.env.example` para `.env`, faz `npm ci`, sobe a stack com `docker compose up -d --build --wait` e roda `npm test` com `TESTES_LENTOS=1` (inclui o T-IMP-13). Se falhar, imprime `docker compose logs` |
+| `web` | No `web/`: `npm ci`, testes unitários, `npm run build` e os E2E do Playwright contra a imagem do nginx apontando para o simulador do contrato |
+
+Nenhum segredo real entra no CI: o `.env.example` tem valores falsos que funcionam, e o banco do runner
+nasce vazio e morre ao fim da execução. Os testes não dependem de dados antigos: cada um cria os próprios
+tenants com e-mails únicos.
+
+**O check vermelho só bloqueia o merge com a regra do repositório.** O workflow apenas marca o commit
+como falho. Para impedir o merge no `main`: GitHub → Settings → Branches → Add branch protection rule
+(ou Rules → Rulesets) para `main` → "Require status checks to pass before merging" → marcar os checks
+**`api`** e **`web`**. Sem essa regra, o vermelho avisa mas não impede.
+
 ## Estrutura do repositório
 
 ```
+.github/workflows/ci.yml         # integração contínua (jobs api e web)
 docs/
 ├── 01-visao-produto.md          # 1.1 — problema, cliente fictício, personas
 ├── 02-arquitetura-c4.md         # 1.2 — C4 níveis 1, 2 e esboço do 3; "Estado na Etapa 2"
