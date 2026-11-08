@@ -46,6 +46,7 @@ services/api-contatos/   porta de entrada: auth, contatos, importações, rotas 
 services/importacao/     worker BullMQ: lê o CSV do job, valida, envia lotes à API
 db/init/                 cria papéis do Postgres (roda só no primeiro boot)
 db/migrations/           schemas, tabelas, RLS, grants
+db/migrate.js            aplica migrações (imagem orbitati/migrate: db/Dockerfile, pacote próprio fora dos workspaces)
 deploy/k8s/              manifests do kind
 tests/                   testes de integração (isolamento, RLS, importação)
 tests/carga/             k6 (CQ-01)
@@ -58,6 +59,8 @@ web/e2e/                 E2E e capturas (Playwright); capturas em web/e2e/captur
 ## Comandos
 
 ```
+npm install                           # dependências da raiz (Vitest, pg) e dos services/*
+npm run env                           # gera o .env com senhas aleatórias; nunca sobrescreve um .env existente
 docker compose up -d --build --wait   # sobe tudo (postgres, redis, migrate, api, importacao)
 docker compose run --rm migrate       # aplica migrações pendentes
 npm test                              # todos os testes (stack precisa estar no ar)

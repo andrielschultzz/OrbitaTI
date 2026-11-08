@@ -69,6 +69,40 @@ web/                             # Portal Web (SPA React + nginx), pacote indepe
 └── Dockerfile                   # build Node 22 -> nginx não-root na porta 8080
 ```
 
+## Infraestrutura local (banco e fila)
+
+Requisitos: Node.js 22 ou mais novo e Docker Desktop. Na raiz do repositório:
+
+```
+npm install                          # Vitest e pg para os testes de integração
+npm run env                          # cria o .env com senhas aleatórias (ou copie o .env.example)
+docker compose up -d --wait          # Postgres 16 e Redis 7 saudáveis
+docker compose run --rm migrate      # aplica migrações pendentes (rodar de novo não aplica nada)
+npm test                             # testes de integração (tests/), contra a stack no ar
+```
+
+O Postgres fica publicado só em `127.0.0.1:5432`: os testes rodam no host e precisam dele, mas ninguém
+da rede alcança a porta. O Redis não é publicado.
+
+**O `.env` e as senhas do banco.** As senhas dos papéis (`migrador`, `api_contatos`, `importacao_svc`)
+são gravadas **só no primeiro boot** do Postgres, quando o volume `pgdados` está vazio
+(`db/init/01-papeis.sh`). Depois disso, trocar uma senha no `.env` não muda o banco: o papel continua com
+a senha antiga, e a conexão com a nova falha com `password authentication failed`. Por isso o
+`npm run env` **nunca** sobrescreve um `.env` existente. Para trocar uma senha de propósito, há dois
+caminhos:
+
+- **sem perder dados:** troque no `.env` e no banco, com o mesmo valor:
+  `docker compose exec postgres psql -U postgres -d orbitati -c "ALTER ROLE api_contatos PASSWORD 'nova'"`;
+- **do zero:** `docker compose down -v` apaga o volume, e com ele **todos os dados**. No próximo `up`, os
+  papéis são recriados com as senhas do `.env`.
+
+**Migrações.** Ficam em `db/migrations/NNN_nome.sql` e rodam pela imagem `orbitati/migrate`
+(`db/Dockerfile`), como o papel `migrador`. Migração aplicada não se edita: o `migrate.js` guarda o
+SHA-256 de cada arquivo e para com erro se o conteúdo mudar. Também falha (e desfaz a migração) se o PostgreSQL emitir
+qualquer WARNING: um `GRANT` ou `REVOKE` sem efeito não dá erro, só aviso. Para mudar algo, crie uma migração nova. No
+ambiente local a pasta é montada no contêiner, então uma migração nova vale sem rebuild; mudanças no
+`migrate.js` pedem `docker compose build migrate`.
+
 ## Portal Web
 
 > **Estado em 07/11/2026:** o Portal está pronto e testado, mas roda contra o **simulador** do contrato
