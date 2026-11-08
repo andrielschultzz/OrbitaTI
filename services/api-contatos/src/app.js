@@ -113,7 +113,7 @@ export function buildApp(opcoes = {}) {
   });
 
   const criouPool = !opcoes.pool;
-  const pool = opcoes.pool ?? criarPool(opcoes.databaseUrl ?? process.env.DATABASE_URL_API);
+  const pool = opcoes.pool ?? criarPool(opcoes.databaseUrl ?? process.env.DATABASE_URL_API, app.log);
   if (criouPool) app.addHook('onClose', async () => pool.end());
 
   // Mesma ideia do pool: quem recebe a fila pronta (teste) cuida de fechá-la.

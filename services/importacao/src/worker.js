@@ -41,7 +41,7 @@ if (segredo.length < 32) throw new Error('JWT_SERVICO_SEGREDO precisa ter pelo m
 const lote = inteiro('IMPORT_LOTE', 100, 1, LOTE_MAXIMO);
 const pausaMs = inteiro('IMPORT_PAUSA_MS', 500, 0, 60_000);
 
-const pool = criarPool(exigir('DATABASE_URL_IMPORTACAO'));
+const pool = criarPool(exigir('DATABASE_URL_IMPORTACAO'), log);
 const api = criarClienteApi({ baseUrl: exigir('API_URL_INTERNA'), segredo });
 // maxRetriesPerRequest: null é exigência do BullMQ para o Worker (ele usa comandos bloqueantes).
 // Diferente da API, aqui o Redis fora não tem "plano B": o worker espera reconectar e segue.

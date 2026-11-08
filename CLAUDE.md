@@ -42,15 +42,15 @@ Se uma tarefa exigir contrariar um ADR, **pare e pergunte**. Não mude a decisã
 ## Estrutura
 
 ```
-services/api-contatos/   porta de entrada: auth, contatos, importações, /planos, rotas /interno; test/ = unitários sem stack (T-ISO-13, T-OBS-03)
+services/api-contatos/   porta de entrada: auth, contatos, importações, /planos, rotas /interno; test/ = unitários sem stack (T-ISO-13, T-OBS-03, T-RES-07)
 services/importacao/     worker BullMQ: lê o CSV do job, valida, envia lotes à API; /saude interno na 3001 (sem porta publicada); test/ = unitários sem stack
 db/init/                 cria papéis do Postgres (roda só no primeiro boot)
 db/migrations/           schemas, tabelas, RLS, grants
 db/migrate.js            aplica migrações (imagem orbitati/migrate: db/Dockerfile, pacote próprio fora dos workspaces)
-deploy/k8s/              manifests do kind
+deploy/k8s/              manifests do kind (namespace orbitati), aplicados pelo scripts/deploy-kind.ps1; exemplos/ = Secret com valores falsos (fora do apply)
 tests/                   testes de integração (isolamento, RLS, importação); tests/apoio/ = funções comuns (não são testes)
 tests/carga/             k6 (CQ-01)
-scripts/                 seed.js (contas de demo), demo-isolamento.ps1, demo-degradacao.ps1 (T-RES), ensaio-reprocessamento.ps1 (T-IMP-14) e utilitários
+scripts/                 seed.js (contas de demo), deploy-kind.ps1 (bloco 6), demo-isolamento.ps1, demo-degradacao.ps1 (T-RES), ensaio-reprocessamento.ps1 (T-IMP-14) e utilitários
 web/                     Portal Web: SPA React (src/), nginx (nginx/), Dockerfile, design system
 web/simulador/           simulador do contrato (docs/contrato-api.md) para o Portal rodar sem a API; fora da imagem
 web/e2e/                 E2E e capturas (Playwright); capturas em web/e2e/capturas/ (fora do git)
@@ -67,9 +67,11 @@ npm test                              # todos os testes (stack precisa estar no 
 TESTES_LENTOS=1 npm test              # inclui o T-IMP-13 (~25 s: prova a pausa de 500 ms); CI e antes de entrega
 npm run seed                          # tenants de demonstração DevSolo e TechConsult (idempotente; SEED_URL)
 powershell -ExecutionPolicy Bypass -File .\scripts\demo-isolamento.ps1 [-SemPausa] [-BaseUrl <url>]
-powershell -ExecutionPolicy Bypass -File .\scripts\demo-degradacao.ps1 [-SemPausa]   # para importacao e redis e religa (T-RES-01 a 05)
+powershell -ExecutionPolicy Bypass -File .\scripts\demo-degradacao.ps1 [-SemPausa]   # para importacao, redis e postgres e religa (T-RES-01 a 05 e 07)
 powershell -ExecutionPolicy Bypass -File .\scripts\ensaio-reprocessamento.ps1 [-Quedas 2]  # T-IMP-14: mata o worker no meio de 5.000 linhas (1 a 3 min)
 docker compose logs -f api-contatos importacao
+powershell -ExecutionPolicy Bypass -File .\scripts\deploy-kind.ps1 [-SemBuild] [-SemSeed]  # kind "saas": build, kind load, apply, migração, rollout restart, seed
+kubectl get pods -n orbitati          # estado no kind (nunca imprima o Secret: nada de get secret -o yaml)
 docker compose down -v                # derruba e APAGA os dados (reset total)
 ```
 

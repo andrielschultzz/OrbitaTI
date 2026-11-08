@@ -1,0 +1,76 @@
+# Worker de importação (BullMQ), 1 réplica. Sem Service: ninguém chama o worker; ele é que chama a API
+# (POST /interno/importacoes/:id/lotes, pelo Service "api-contatos", regra 7).
+#
+# Probes, pelo mesmo motivo da API:
+#   readiness  GET /saude :3001 -> 503 com banco OU fila fora (o worker não trabalha sem os dois).
+#   liveness   TCP :3001        -> não depende do Redis nem do banco; senão uma queda do Redis faria o
+#                                  Kubernetes reiniciar o worker em loop.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: importacao
+  namespace: orbitati
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: importacao
+  template:
+    metadata:
+      labels:
+        app: importacao
+    spec:
+      # Tempo para terminar o job em andamento no SIGTERM (stop_grace_period do compose). Se passar, o
+      # job volta à fila e recomeça sem duplicar nada (idempotência, T-IMP-14).
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000   # usuário "node" da imagem
+      containers:
+        - name: importacao
+          image: orbitati/importacao:0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3001
+          env:
+            # Nada de JWT_SEGREDO aqui: o worker só assina o token de SERVIÇO.
+            - name: DATABASE_URL_IMPORTACAO
+              valueFrom: { secretKeyRef: { name: orbitati-segredos, key: DATABASE_URL_IMPORTACAO } }
+            - name: REDIS_URL
+              valueFrom: { secretKeyRef: { name: orbitati-segredos, key: REDIS_URL } }
+            - name: JWT_SERVICO_SEGREDO
+              valueFrom: { secretKeyRef: { name: orbitati-segredos, key: JWT_SERVICO_SEGREDO } }
+            - name: API_URL_INTERNA
+              valueFrom: { secretKeyRef: { name: orbitati-segredos, key: API_URL_INTERNA } }
+            # ADR-003: lotes de 100 linhas, pausa de 500 ms.
+            - name: IMPORT_LOTE
+              value: "100"
+            - name: IMPORT_PAUSA_MS
+              value: "500"
+          readinessProbe:
+            httpGet:
+              path: /saude
+              port: 3001
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            tcpSocket:
+              port: 3001
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests: { cpu: 50m, memory: 96Mi }
+            limits: { cpu: 500m, memory: 256Mi }
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: { medium: Memory, sizeLimit: 16Mi }

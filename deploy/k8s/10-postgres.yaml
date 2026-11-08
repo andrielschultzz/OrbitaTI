@@ -1,0 +1,98 @@
+# PostgreSQL 16 do OrbitaTI (equivale ao serviço "postgres" do docker-compose.yml).
+#
+# StatefulSet, e não Deployment: o pod tem nome estável (postgres-0) e o PVC (1Gi) fica preso a ele.
+# Apagar o pod NÃO apaga os dados; só apagar o PVC (ou o namespace) apaga.
+#
+# O init (db/init/01-papeis.sh) vem do ConfigMap "postgres-init", que o scripts/deploy-kind.ps1 gera a
+# partir do arquivo do repositório. Não há cópia versionada aqui: um arquivo só, uma verdade só.
+# Como no compose, o init roda UMA vez, quando o volume está vazio.
+#
+# Sem securityContext restritivo: o entrypoint da imagem precisa começar como root para acertar o dono
+# da pasta de dados (o volume local-path não suporta fsGroup) e depois troca para o usuário postgres.
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: orbitati
+spec:
+  # Só ClusterIP: o banco não é alcançável de fora do cluster.
+  selector:
+    app: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: orbitati
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: orbitati
+            # Subpasta: a raiz do volume pode ter lost+found, e o initdb exige pasta vazia.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+            # Só as chaves de que o banco precisa (menor privilégio): nada de JWT aqui.
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: orbitati-segredos, key: POSTGRES_PASSWORD } }
+            - name: DB_SENHA_MIGRADOR
+              valueFrom: { secretKeyRef: { name: orbitati-segredos, key: DB_SENHA_MIGRADOR } }
+            - name: DB_SENHA_API
+              valueFrom: { secretKeyRef: { name: orbitati-segredos, key: DB_SENHA_API } }
+            - name: DB_SENHA_IMPORTACAO
+              valueFrom: { secretKeyRef: { name: orbitati-segredos, key: DB_SENHA_IMPORTACAO } }
+          # -h 127.0.0.1: testa pelo TCP. Durante o init o Postgres só aceita socket local, então o pod só
+          # fica "pronto" depois que os papéis foram criados (mesmo truque do healthcheck do compose).
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "orbitati"]
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          # Liveness só no TCP e com folga: um banco lento não deve ser reiniciado no meio de uma query.
+          livenessProbe:
+            tcpSocket:
+              port: 5432
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 6
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: 500m, memory: 512Mi }
+          volumeMounts:
+            - name: dados
+              mountPath: /var/lib/postgresql/data
+            - name: init
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+      volumes:
+        - name: init
+          configMap:
+            name: postgres-init
+  volumeClaimTemplates:
+    - metadata:
+        name: dados
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi

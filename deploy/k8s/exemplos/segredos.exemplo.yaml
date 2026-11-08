@@ -1,0 +1,31 @@
+# EXEMPLO com valores FALSOS: documenta as chaves do Secret "orbitati-segredos". NÃO aplique este arquivo.
+# Fica em exemplos/ de propósito: `kubectl apply -f deploy/k8s/` não entra em subpastas, então não
+# sobrescreve o Secret real com estes valores falsos.
+#
+# O Secret de verdade é gerado a partir do .env (que não vai para o git), pelo scripts/deploy-kind.ps1:
+#   kubectl create secret generic orbitati-segredos --from-env-file=.env -n orbitati
+#
+# O .env pode ter outras chaves (ex.: TRUST_PROXY_SALTOS); os manifests só leem as listadas aqui, e cada
+# pod recebe apenas as que usa (secretKeyRef, não envFrom). Os hosts "postgres", "redis" e "api-contatos"
+# são os nomes dos Services no namespace orbitati, então as URLs do .env do compose servem sem mudança.
+#
+# Trocou o .env? Recrie o Secret (kubectl delete secret orbitati-segredos -n orbitati) e rode o deploy
+# de novo. As senhas dos papéis do banco só valem no PRIMEIRO boot do Postgres (volume vazio).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: orbitati-segredos
+  namespace: orbitati
+type: Opaque
+stringData:
+  POSTGRES_PASSWORD: TROQUE-senha-postgres
+  DB_SENHA_MIGRADOR: TROQUE-senha-migrador
+  DB_SENHA_API: TROQUE-senha-api
+  DB_SENHA_IMPORTACAO: TROQUE-senha-importacao
+  DATABASE_URL_MIGRADOR: postgres://migrador:TROQUE-senha-migrador@postgres:5432/orbitati
+  DATABASE_URL_API: postgres://api_contatos:TROQUE-senha-api@postgres:5432/orbitati
+  DATABASE_URL_IMPORTACAO: postgres://importacao_svc:TROQUE-senha-importacao@postgres:5432/orbitati
+  REDIS_URL: redis://redis:6379
+  JWT_SEGREDO: TROQUE-pelo-menos-32-caracteres-aleatorios
+  JWT_SERVICO_SEGREDO: TROQUE-outro-segredo-de-32-caracteres-ou-mais
+  API_URL_INTERNA: http://api-contatos:3000

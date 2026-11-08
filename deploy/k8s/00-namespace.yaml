@@ -1,0 +1,8 @@
+# Namespace do OrbitaTI no kind "saas". Tudo do projeto fica aqui, separado dos outros labs do cluster.
+# Reset total (equivale ao `docker compose down -v`, APAGA o banco): kubectl delete namespace orbitati
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: orbitati
+  labels:
+    app.kubernetes.io/part-of: orbitati
