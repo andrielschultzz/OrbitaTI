@@ -16,6 +16,7 @@ export const MENSAGENS = {
   IMPORTACOES_SIMULTANEAS: 'Você já tem importações em andamento. Aguarde uma terminar.',
   LIMITE_REQUISICOES: 'Muitas ações seguidas. Tente de novo em instantes.',
   FILA_INDISPONIVEL:'Importação indisponível no momento. O restante do sistema segue funcionando.',
+  LINK_INVALIDO: 'Este link é inválido ou venceu.',
 };
 
 /** Erro que já sabe virar resposta do contrato. Lance-o em qualquer rota; o setErrorHandler responde. */

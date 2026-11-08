@@ -10,6 +10,13 @@
 //   serviço   JWT_SERVICO_SEGREDO  só rotas com `config: { servico: true }` (/interno/*). Exige
 //                                  iss "importacao", aud "api-contatos", exp e no máximo 60 s de vida.
 //                                  JWT de usuário aqui falha na assinatura: 401 (T-IMP-10).
+//
+// O link do e-mail de confirmação (bloco 10) também é um JWT com JWT_SEGREDO, mas com o claim
+// finalidade: "confirmar-email" e 24 h de vida. As duas portas conferem a finalidade EXPLICITAMENTE:
+//   - aqui, todo token com "finalidade" é 401: um link de e-mail nunca vira uma sessão de 24 h (T-AUTH-11);
+//   - no GET /auth/confirmar, só "confirmar-email" vale: token de sessão não confirma e-mail (T-AUTH-12).
+// O claimsValidas abaixo também recusaria o de confirmação, por faltar plano e papel. Mas isso seria
+// coincidência: se um dia o token de confirmação ganhar esses claims, a porta continua fechada.
 import fp from 'fastify-plugin';
 import jwt from '@fastify/jwt';
 import { createVerifier } from 'fast-jwt';
@@ -18,6 +25,11 @@ import { ErroContrato } from './erros.js';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PLANOS = new Set(['individual', 'equipe']);
 const PAPEIS = new Set(['admin', 'consultor', 'visualizador']);
+
+/** Claim finalidade do token do link de confirmação de e-mail (bloco 10). */
+export const FINALIDADE_CONFIRMAR_EMAIL = 'confirmar-email';
+/** Validade do link de confirmação (contrato, seção 4). */
+export const VALIDADE_CONFIRMACAO = '24h';
 
 /** Token assinado, mas com claims fora do esperado, também é 401: nunca usar um tenant_id malformado. */
 const claimsValidas = (c) =>
@@ -85,7 +97,8 @@ async function autenticacao(app, { segredo, servicoSegredo }) {
     } catch {
       throw new ErroContrato(401, 'NAO_AUTENTICADO'); // sem token, adulterado, expirado: mesma resposta
     }
-    if (!claimsValidas(claims)) throw new ErroContrato(401, 'NAO_AUTENTICADO');
+    // Token com finalidade (link de e-mail) nunca abre sessão, mesmo assinado e dentro do prazo.
+    if (claims?.finalidade !== undefined || !claimsValidas(claims)) throw new ErroContrato(401, 'NAO_AUTENTICADO');
     req.user = { sub: claims.sub, tenant_id: claims.tenant_id, plano: claims.plano, papel: claims.papel };
     // Daqui em diante, todo log desta requisição sai com o tenant (observabilidade, CLAUDE.md).
     // O rep.log também: é por ele que o Fastify escreve o "request completed" no fim.

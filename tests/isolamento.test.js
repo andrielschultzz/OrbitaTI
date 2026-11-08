@@ -19,6 +19,9 @@ import {
   tokenServico,
 } from './apoio/api.js';
 
+// Base fictícia dos links de e-mail (PORTAL_URL). Só precisa ser uma URL válida.
+const PORTAL_URL_TESTE = 'http://portal.teste';
+
 // ---------------------------------------------------------------------------------------------------
 // A TABELA. Toda rota que lê ou grava dado de tenant entra aqui. Rota nova com :id = uma linha nova em
 // ROTAS_COM_ID, e ela passa a ser atacada pelos testes T-ISO-01 a 03, 05 e 19 sem escrever mais nada.
@@ -52,9 +55,10 @@ const ROTAS_SEM_ID = [
 
 // Rotas públicas (config.publica: sem token, logo sem tenant). Lista FIXA de propósito: marcar uma rota
 // como pública tira ela da autenticação E da tabela acima. Sem esta lista, esse seria um jeito de escapar
-// das duas coisas com uma linha só. Próximas: /auth/confirmar (bloco 10), /conta/exportacao/arquivo (bloco 14).
+// das duas coisas com uma linha só. GET /auth/confirmar (bloco 10) entra com rate limit por IP. Próxima:
+// /conta/exportacao/arquivo (bloco 14).
 // GET /planos (bloco 4) não tem dado de tenant: a resposta é a mesma para qualquer pessoa.
-const ROTAS_PUBLICAS = ['GET /saude', 'GET /planos', 'POST /auth/cadastro', 'POST /auth/login'];
+const ROTAS_PUBLICAS = ['GET /saude', 'GET /planos', 'POST /auth/cadastro', 'POST /auth/login', 'GET /auth/confirmar'];
 
 const chave = (r) => `${r.metodo} ${r.caminho}`;
 const comId = (rota, id) => rota.caminho.replace(':id', id);
@@ -221,9 +225,10 @@ describe('API no próprio processo', () => {
       max: 2,
     });
     app = buildApp({
+      portalUrl: PORTAL_URL_TESTE,
       pool,
       // O Redis do compose não tem porta publicada, e nenhuma rota da tabela enfileira: fila simulada.
-      fila: { verificar: async () => true, enfileirar: async () => {} },
+      fila: { verificar: async () => true, enfileirar: async () => {}, enfileirarEmail: async () => {} },
       limiteEmMemoria: true, // o Redis do compose não tem porta publicada
       // O log em JSON vai para esta lista em vez do terminal: é o que o T-ISO-19 inspeciona.
       logger: { level: 'info', stream: { write: (linha) => logs.push(JSON.parse(linha)) } },

@@ -4,6 +4,7 @@
 //   padrão          chave = tenant_id (do TOKEN)  máx = requisicoes_por_minuto do plano (60 | 600, planos.js)
 //   POST /auth/login     chave = IP + e-mail      10/min: força bruta numa conta
 //   POST /auth/cadastro  chave = IP               LIMITE_CADASTRO_POR_MIN (padrão 60)
+//   GET /auth/confirmar  chave = IP               10/min (bloco 10)
 //   /saude, /planos, /interno/*: sem limite (config.rateLimit = false; T-RL-07 confere)
 //
 // Por que roda no preHandler, e não no onRequest: o tenant só é conhecido DEPOIS da autenticação
@@ -35,6 +36,18 @@ export const limiteCadastro = (max) => ({
   timeWindow: UM_MINUTO_MS,
   keyGenerator: (req) => `cadastro:${req.ip}`,
 });
+
+/**
+ * Config de rota: GET /auth/confirmar (bloco 10). Por IP: a rota é pública e não há tenant.
+ * 10/min, o mesmo número do login: uma pessoa clica no link 1 ou 2 vezes. Adivinhar um token assinado
+ * (HS256) é inviável; o limite protege o banco e a CPU de quem martela a rota com lixo.
+ */
+export const CONFIRMACAO_POR_MINUTO = 10;
+export const limiteConfirmacao = {
+  max: CONFIRMACAO_POR_MINUTO,
+  timeWindow: UM_MINUTO_MS,
+  keyGenerator: (req) => `confirmar:${req.ip}`,
+};
 
 /** Chave do limite padrão. Rota pública sem config própria é erro de programação: falha alto (T-RL-07). */
 export function chaveDoTenant(req) {

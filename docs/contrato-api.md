@@ -1,9 +1,10 @@
 # Contrato HTTP da API de Contatos
 
-**Versão:** 1.3 — 08/11/2026, derivada do `CLAUDE.md` e dos blocos 2, 4, 5, 10, 12 e 14.
+**Versão:** 1.4 — 08/11/2026, derivada do `CLAUDE.md` e dos blocos 2, 4, 5, 10, 12 e 14.
 Mudanças da 1.1 (Fase 0 do bloco 13): `GET /planos/atual` virou `GET /planos` pública; dados extras de erro no nível de cima; lacuna dos papéis declarada.
 Mudanças da 1.2 (bloco 4): e-mail repetido no CSV vira erro de linha (o simulador mudou junto); separador decidido pelo cabeçalho; reimportação não apaga dado com célula vazia; respostas, limites e erros das rotas `/interno` definidos (seção 8). Nenhuma rota usada pelo Portal mudou de formato.
 Mudanças da 1.3 (bloco 7): headers `x-ratelimit-*` documentados na seção 1 (já eram enviados desde o bloco 5); decisões da seção 11 registradas no ADR-004. Nenhum formato mudou.
+Mudanças da 1.4 (bloco 10): `GET /auth/confirmar` implementada, com rate limit de 10/min por IP; todo token ruim (ausente, vencido, adulterado, de sessão) é `LINK_INVALIDO`, nunca `VALIDACAO`; o cadastro passa a enfileirar o e-mail de confirmação. Nenhum formato mudou.
 
 ## Para que serve
 
@@ -36,7 +37,7 @@ Mudanças da 1.3 (bloco 7): headers `x-ratelimit-*` documentados na seção 1 (j
 
     | Header | Significado |
     |---|---|
-    | `x-ratelimit-limit` | Limite da janela de 1 min que vale para esta requisição: 60 ou 600 por tenant (plano), 10 no login, `LIMITE_CADASTRO_POR_MIN` no cadastro |
+    | `x-ratelimit-limit` | Limite da janela de 1 min que vale para esta requisição: 60 ou 600 por tenant (plano), 10 no login, `LIMITE_CADASTRO_POR_MIN` no cadastro, 10 na confirmação de e-mail |
     | `x-ratelimit-remaining` | Quantas requisições ainda cabem nesta janela |
     | `x-ratelimit-reset` | Segundos até a janela recomeçar |
 
@@ -75,7 +76,7 @@ Mudanças da 1.3 (bloco 7): headers `x-ratelimit-*` documentados na seção 1 (j
 | 422 | `CSV_VAZIO` | CSV sem nenhuma linha de dados | O arquivo não tem nenhum contato. |
 | 422 | `CSV_SEM_COLUNAS` | Cabeçalho sem a coluna `nome` ou sem a coluna `email` | A primeira linha precisa ter as colunas nome e email. |
 | 422 | `LINHAS_ACIMA_DO_PLANO` | Mais linhas do que o plano permite. Traz `limite` e `linhas` | Seu plano permite até {limite} linhas por importação. |
-| 429 | `LIMITE_REQUISICOES` | Rate limit por tenant, de login (IP + e-mail) ou de cadastro (IP). Com `Retry-After` | Muitas ações seguidas. Tente de novo em instantes. |
+| 429 | `LIMITE_REQUISICOES` | Rate limit por tenant, de login (IP + e-mail), de cadastro (IP) ou de confirmação de e-mail (IP). Com `Retry-After` | Muitas ações seguidas. Tente de novo em instantes. |
 | 429 | `IMPORTACOES_SIMULTANEAS` | Já existem 2 (Individual) ou 5 (Equipe) importações `na_fila` ou `processando`. Traz `limite` | Você já tem importações em andamento. Aguarde uma terminar. |
 | 503 | `FILA_INDISPONIVEL` | Redis fora no `POST /importacoes` | Importação indisponível no momento. O restante do sistema segue funcionando. |
 | 500 | `ERRO_INTERNO` | Qualquer erro não previsto | Erro interno. Se continuar, informe o código {x-request-id}. |
@@ -115,6 +116,7 @@ Mudanças da 1.3 (bloco 7): headers `x-ratelimit-*` documentados na seção 1 (j
 | `senha` | 8 a 128 caracteres. O mínimo de 8 segue o NIST SP 800-63B; o máximo de 128 impede que uma senha gigante gaste CPU no Argon2 |
 
 - **Sucesso:** `201 {"token": "..."}`. O usuário criado é `admin`.
+- **E-mail de confirmação (bloco 10):** depois do COMMIT, a API enfileira um e-mail com o link de confirmação (fila `emails`, Serviço de Notificações). Se a fila estiver fora, o cadastro responde 201 do mesmo jeito e só registra aviso no log: o e-mail nunca impede o onboarding.
 - **Erros:** 400 `VALIDACAO`; 409 `EMAIL_JA_CADASTRADO`, também com o e-mail em maiúsculas (T-AUTH-02); 429.
 
 ### `POST /auth/login` — bloco 2
@@ -125,8 +127,10 @@ Mudanças da 1.3 (bloco 7): headers `x-ratelimit-*` documentados na seção 1 (j
 
 ### `GET /auth/confirmar?token=` — bloco 10
 
-- **Sucesso:** `200 {"confirmado_em": "..."}`.
-- **Erro:** 400 `LINK_INVALIDO`. O token é assinado e vale 24 h.
+- **Sucesso:** `200 {"confirmado_em": "..."}`. Clicar de novo no link devolve a **mesma** data (a da primeira confirmação).
+- **Erro:** 400 `LINK_INVALIDO` para **qualquer** token que não sirva: ausente, vazio, maior que 2 KB, vencido, adulterado, de usuário que não existe mais ou **de sessão**. Nunca `VALIDACAO`: a tela só precisa conhecer um código. 429 `LIMITE_REQUISICOES` acima de 10 por minuto por IP.
+- **Token:** JWT assinado pela API, válido por 24 h, com `finalidade: "confirmar-email"`. Não serve como token de sessão (nas rotas autenticadas dá 401), e o token de sessão não serve aqui.
+- **O login não exige confirmação.**
 - **Link do e-mail:** aponta para o **Portal**, em `${PORTAL_URL}/confirmar-email?token=...`, e a tela chama esta rota. `PORTAL_URL` vem do ambiente: `http://localhost:8080` local e a URL da VM depois. Nunca escreva "localhost" no código.
 
 ### `GET /conta/exportacao/arquivo?token=` — bloco 14

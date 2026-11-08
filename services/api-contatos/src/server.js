@@ -1,7 +1,7 @@
 // Ponto de entrada do contêiner: monta a API e escuta na porta 3000.
 // Configuração só pelo ambiente: DATABASE_URL_API, JWT_SEGREDO, JWT_SERVICO_SEGREDO, REDIS_URL (obrigatório:
-// sem ele o buildApp() recusa subir), PORTA (padrão 3000), LOG_NIVEL, TRUST_PROXY_SALTOS (padrão 1) e
-// LIMITE_CADASTRO_POR_MIN (padrão 60).
+// sem ele o buildApp() recusa subir), PORTAL_URL (obrigatório: base do link do e-mail de confirmação),
+// PORTA (padrão 3000), LOG_NIVEL, TRUST_PROXY_SALTOS (padrão 1) e LIMITE_CADASTRO_POR_MIN (padrão 60).
 import { buildApp } from './app.js';
 
 const app = buildApp();

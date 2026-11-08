@@ -73,7 +73,7 @@ Adotamos a opção C. As três operações que se qualificam hoje:
 |---|---|---|
 | Importação de contatos via CSV | Worker de Importação | Centenas de INSERTs em rajada. **Implementado na Etapa 2** |
 | Geração de proposta em PDF | Gerador de Documentos | Renderização leva 2 a 5 s por documento. **Fora do escopo do semestre** (contrato, seção 10) |
-| Disparo de alertas de contato frio | Serviço de Notificações | Varre a base do tenant e envia e-mails em lote. **Planejado** (bloco 10) |
+| Disparo de alertas de contato frio | Serviço de Notificações | Varre a base do tenant e envia e-mails em lote. **Não implementado.** O serviço existe desde o bloco 10, mas só com o e-mail de confirmação de cadastro (fila `emails`, ver ADR-004) |
 
 ### Os números e de onde saíram
 

@@ -7,8 +7,11 @@ import { buildApp } from '../src/app.js';
 import { maximoDoPlano } from '../src/limite.js';
 import { PLANOS } from '../src/planos.js';
 
+// Base fictícia dos links de e-mail (PORTAL_URL). Só precisa ser uma URL válida.
+const PORTAL_URL_TESTE = 'http://portal.teste';
+
 const SEGREDOS = { jwtSegredo: 'x'.repeat(32), jwtServicoSegredo: 'y'.repeat(32) };
-const FILA_FALSA = { verificar: async () => true, enfileirar: async () => {} };
+const FILA_FALSA = { verificar: async () => true, enfileirar: async () => {}, enfileirarEmail: async () => {} };
 
 // Pool falso que deixa o cadastro terminar com 201: toda query devolve um "id" novo.
 const cliente = { query: async () => ({ rows: [{ id: randomUUID() }] }), release: () => {} };
@@ -16,7 +19,7 @@ const POOL_FALSO = { query: async () => ({ rows: [] }), connect: async () => cli
 
 const abertos = [];
 function montar(extra = {}) {
-  const app = buildApp({ ...SEGREDOS, pool: POOL_FALSO, fila: FILA_FALSA, limiteEmMemoria: true, logger: false, ...extra });
+  const app = buildApp({ ...SEGREDOS, pool: POOL_FALSO, fila: FILA_FALSA, limiteEmMemoria: true, portalUrl: PORTAL_URL_TESTE, logger: false, ...extra });
   abertos.push(app);
   return app;
 }
@@ -52,6 +55,18 @@ describe('T-RL-04: limite de cadastro por IP', () => {
   }, 20_000); // 4 hashes Argon2
 });
 
+describe('T-RL-08: limite de confirmação de e-mail por IP (bloco 10)', () => {
+  it('10 cliques por minuto do mesmo IP; o 11º -> 429 LIMITE_REQUISICOES; outro IP segue', async () => {
+    const app = montar();
+    const clicar = (ip) => app.inject({ method: 'GET', url: '/auth/confirmar?token=lixo', remoteAddress: ip });
+    for (let i = 0; i < 10; i++) expect((await clicar('203.0.113.9')).statusCode).toBe(400); // chegou na rota
+    const r = await clicar('203.0.113.9');
+    expect(r.statusCode).toBe(429);
+    expect(r.json().codigo).toBe('LIMITE_REQUISICOES');
+    expect((await clicar('203.0.113.10')).statusCode).toBe(400);
+  });
+});
+
 describe('T-RL-07: só /saude, /planos e /interno ficam fora do limite', () => {
   it('toda rota tem limite, menos as três isentas; login e cadastro têm limite próprio', async () => {
     const app = montar();
@@ -77,7 +92,7 @@ describe('configuração', () => {
     const antes = process.env.REDIS_URL;
     delete process.env.REDIS_URL;
     try {
-      expect(() => buildApp({ ...SEGREDOS, pool: POOL_FALSO, fila: FILA_FALSA, logger: false })).toThrow(/REDIS_URL/);
+      expect(() => buildApp({ ...SEGREDOS, pool: POOL_FALSO, fila: FILA_FALSA, portalUrl: PORTAL_URL_TESTE, logger: false })).toThrow(/REDIS_URL/);
     } finally {
       if (antes !== undefined) process.env.REDIS_URL = antes;
     }

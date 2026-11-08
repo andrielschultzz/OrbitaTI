@@ -1,0 +1,74 @@
+# Serviço de Notificações (bloco 10): worker BullMQ da fila "emails", 1 réplica. Sem Service: ninguém
+# chama o worker; ele lê a fila e envia por SMTP ao Service "mailpit".
+#
+# Por que ele está no kind (e não só no compose): a API do kind enfileira um e-mail a cada cadastro. Sem
+# worker, esses jobs ficariam no Redis PARA SEMPRE (removeOnComplete só age quando o job termina), cada um
+# com o e-mail da pessoa e um link que vale 24 h como credencial.
+#
+# Sem Secret: não tem banco nem segredo de token. Só o REDIS_URL vem do Secret (é o mesmo da API).
+#
+# Probes, pelo mesmo motivo do worker de importação:
+#   readiness  GET /saude :3001 -> 503 com a fila fora. O SMTP não entra: se ele cair, as tentativas do
+#              BullMQ reenviam; reiniciar o pod não resolveria nada.
+#   liveness   TCP :3001        -> não depende do Redis; senão uma queda do Redis reiniciaria o pod em loop.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notificacoes
+  namespace: orbitati
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: notificacoes
+  template:
+    metadata:
+      labels:
+        app: notificacoes
+    spec:
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000   # usuário "node" da imagem
+      containers:
+        - name: notificacoes
+          image: orbitati/notificacoes:0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3001
+          env:
+            - name: REDIS_URL
+              valueFrom: { secretKeyRef: { name: orbitati-segredos, key: REDIS_URL } }
+            - name: SMTP_HOST
+              value: mailpit
+            - name: SMTP_PORTA
+              value: "1025"
+            - name: EMAIL_REMETENTE
+              value: "OrbitaTI <nao-responda@orbitati.local>"
+          readinessProbe:
+            httpGet:
+              path: /saude
+              port: 3001
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            tcpSocket:
+              port: 3001
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests: { cpu: 20m, memory: 64Mi }
+            limits: { cpu: 300m, memory: 192Mi }
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: { medium: Memory, sizeLimit: 16Mi }

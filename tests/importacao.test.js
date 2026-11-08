@@ -9,6 +9,9 @@ import { buildApp } from '../services/api-contatos/src/app.js';
 import { FilaIndisponivel } from '../services/api-contatos/src/fila.js';
 import { cadastrar, chamar, comoDono, criarImportacaoNoBanco, csvValido, limparTenants } from './apoio/api.js';
 
+// Base fictícia dos links de e-mail (PORTAL_URL). Só precisa ser uma URL válida.
+const PORTAL_URL_TESTE = 'http://portal.teste';
+
 afterAll(limparTenants);
 
 const importar = (quem, csv, tipo) => chamar('POST', '/importacoes', { token: quem.token, csv, tipo });
@@ -143,7 +146,7 @@ describe('T-IMP-22: 503 FILA_INDISPONIVEL (bloco 4, item 2)', () => {
   afterAll(() => pool?.end());
 
   async function comFila(fila, fn) {
-    const app = buildApp({ pool, fila, limiteEmMemoria: true, logger: false });
+    const app = buildApp({ pool, fila, limiteEmMemoria: true, portalUrl: PORTAL_URL_TESTE, logger: false });
     try {
       return await fn(app);
     } finally {
@@ -163,7 +166,7 @@ describe('T-IMP-22: 503 FILA_INDISPONIVEL (bloco 4, item 2)', () => {
   };
 
   it('Redis fora (verificar = false) -> 503 sem tocar o banco', async () => {
-    const r = await comFila({ verificar: async () => false, enfileirar: async () => {} }, postar);
+    const r = await comFila({ verificar: async () => false, enfileirar: async () => {}, enfileirarEmail: async () => {} }, postar);
     expect(r.statusCode).toBe(503);
     expect(r.json()).toEqual(esperado);
     expect(await importacoesNoBanco(ind.tenantId)).toEqual([]);

@@ -13,6 +13,13 @@ map $http_x_request_id $id_requisicao {
     ""      $request_id;
 }
 
+# Access log SEM a query string (bloco 10). O formato padrão grava "$request", que traz ?token=... do link
+# de confirmação (/confirmar-email e /api/auth/confirmar, 24 h) e do de exportação (bloco 14, 30 dias):
+# quem lesse o log teria credenciais válidas. $uri é só o caminho. O id de correlação entra no fim para
+# cruzar com o log da API.
+log_format orbitati '$remote_addr [$time_local] "$request_method $uri $server_protocol" $status '
+                    '$body_bytes_sent $request_time "$http_user_agent" $id_requisicao';
+
 gzip on;
 gzip_comp_level 5;
 gzip_min_length 1024;
@@ -25,6 +32,8 @@ server {
     listen 8080;
     server_name _;
     root /usr/share/nginx/html;
+    # Substitui o access_log do nginx.conf da imagem (formato "main", com a query string).
+    access_log /var/log/nginx/access.log orbitati;
 
     # 2m > 1 MB da API: o 413 de CSV grande vem da API, em JSON com ARQUIVO_GRANDE.
     # Com o padrão do nginx (1m), quem responderia seria o nginx, em HTML, e o Portal perderia o código.

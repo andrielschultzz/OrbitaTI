@@ -34,6 +34,8 @@ Há uma exceção: para os dados dos **usuários** do tenant — quem faz login,
 | Dado | Titular | Finalidade | Base legal | Retenção |
 |---|---|---|---|---|
 | Nome e e-mail | Usuário | Identificação e autenticação | Execução de contrato — art. 7º, V | Vida da conta + 30 dias |
+| Nome, e-mail e link de confirmação no job da fila `emails` (bloco 10) | Usuário | Enviar o e-mail de confirmação do cadastro | Execução de contrato — art. 7º, V | **Até o envio** (`removeOnComplete`); se o envio falhar de vez, **24 h** (`removeOnFail`), o mesmo prazo de validade do link |
+| Data de confirmação do e-mail (`usuarios.email_confirmado_em`) | Usuário | Saber se o endereço é da pessoa | Execução de contrato — art. 7º, V | Vida da conta |
 | Senha (hash Argon2id) | Usuário | Autenticação | Execução de contrato — art. 7º, V | Vida da conta |
 | Logs de acesso — IP, data/hora, ação | Usuário | Segurança, auditoria e investigação de incidente | Obrigação legal — art. 7º, II, c/c Marco Civil art. 15 | **6 meses** |
 | Dados de cobrança | Tenant (PJ ou MEI) | Faturamento e obrigação fiscal | Obrigação legal — art. 7º, II | **5 anos** (prazo fiscal) |
@@ -93,6 +95,7 @@ O prazo de 30 dias é declarado no contrato e implementado como job agendado, n�
 | **TLS 1.3 em todo tráfego** | Infraestrutura | Interceptação em trânsito |
 | **Criptografia em repouso** | Banco e armazenamento de objetos | Acesso físico ao meio |
 | **Senha com Argon2id** | API REST | Vazamento de credenciais em caso de dump |
+| **Log sem e-mail completo e sem token de link** (bloco 10): `?token=` vira `[oculto]` na API, o nginx registra só o caminho e o worker de e-mail mascara o destinatário (`m***@dominio`) | API, nginx do Portal, Serviço de Notificações (T-OBS-04) | Quem lê o log ganhar um link válido por 24 h ou uma lista de e-mails |
 | **Prefixo por tenant no armazenamento** | [C4 nível 2](02-arquitetura-c4.md) | Acesso cruzado a PDFs e anexos |
 | **Logs de acesso por 6 meses** | Infraestrutura | Investigação de incidente |
 | **Backup com RPO de 15 min** | [CQ-05](atributos.md#cq-05) | Perda de dados — art. 46 exige integridade |

@@ -74,7 +74,8 @@ Três pontos mudaram na Etapa 2 ([ADR-004](adr/adr-004-comunicacao-entre-servico
 
 - o Worker de Importação não grava no banco: chama a API;
 - o CSV vai no payload do job, sem armazenamento S3;
-- o Gerador de Documentos e o Serviço de Notificações não foram construídos.
+- o Gerador de Documentos não foi construído. O Serviço de Notificações entrou no bloco 10 (08/11/2026), só com
+  o e-mail de confirmação de cadastro e o Mailpit no lugar do provedor real.
 
 O desenho atual está em [Estado na Etapa 2](#estado-na-etapa-2).
 
@@ -230,7 +231,7 @@ flowchart TB
 
         api["<b>API de Contatos</b><br/><i>[Node.js 22 + Fastify 5]</i><br/>Auth, contatos, importações,<br/>rate limit, rotas /interno.<br/><b>tenant_id só do JWT</b><br/>2 réplicas no kind"]
 
-        redis[["<b>Fila e contadores</b><br/><i>[Redis 7 + BullMQ]</i><br/>Jobs de importação<br/>e rate limit.<br/>Sem persistência"]]
+        redis[["<b>Fila e contadores</b><br/><i>[Redis 7 + BullMQ]</i><br/>Filas importacoes e emails,<br/>rate limit.<br/>Sem persistência"]]
 
         worker["<b>Serviço de Importação</b><br/><i>[Node.js 22 + BullMQ]</i><br/>Valida o CSV, lotes de 100,<br/>pausa de 500 ms,<br/>concurrency: 2"]
 
@@ -240,10 +241,13 @@ flowchart TB
         end
 
         migrate["<b>migrate</b><br/><i>[job]</i><br/>Migrações SQL<br/>papel: migrador"]
+
+        notif["<b>Serviço de Notificações</b><br/><i>[Node.js 22 + BullMQ + nodemailer]</i><br/>E-mail de confirmação.<br/><b>Sem banco</b>"]
+
+        mailpit["<b>Mailpit</b><br/><i>[SMTP de teste]</i><br/>No lugar do provedor real"]
     end
 
     subgraph naofeito["Não construído na Etapa 2"]
-        notif["<b>Serviço de Notificações</b><br/>planejado, bloco 10"]
         wdoc["<b>Gerador de Documentos</b><br/>fora do escopo do semestre"]
         blob[("<b>Armazenamento S3</b><br/>adiado, ver ADR-004")]
     end
@@ -258,6 +262,9 @@ flowchart TB
     worker -->|"SQL com tenant fixado<br/>execuções e erros de linha"| imp
     migrate -->|"DDL, RLS e GRANTs"| orbita
     migrate -->|"DDL, RLS e GRANTs"| imp
+    api -->|"④ depois do COMMIT do cadastro<br/>jobId = confirmar-cadastro-usuario_id"| redis
+    redis -->|"⑤ entrega o job"| notif
+    notif -->|"⑥ SMTP"| mailpit
 
     classDef pessoa fill:#0b4f6c,stroke:#08313f,color:#fff
     classDef container fill:#1c7c54,stroke:#0f4a31,color:#fff
@@ -266,16 +273,20 @@ flowchart TB
     classDef ausente fill:#9ca3af,stroke:#4b5563,color:#fff,stroke-dasharray: 5 3
 
     class user pessoa
-    class api,redis,worker,migrate container
+    class api,redis,worker,migrate,notif,mailpit container
     class orbita,imp dados
     class portal parcial
-    class notif,wdoc,blob ausente
+    class wdoc,blob ausente
 ```
 
 **Leitura do diagrama.**
 
-- **Em verde, o que roda.** No compose são 5 contêineres: `postgres`, `redis`, `migrate`, `api-contatos` e
-  `importacao`. No kind, os mesmos, com a API em 2 réplicas (`deploy/k8s/`).
+- **Em verde, o que roda.** No compose são 7 contêineres: `postgres`, `redis`, `migrate`, `api-contatos`,
+  `importacao`, `notificacoes` e `mailpit` (os dois últimos desde o bloco 10). No kind, os mesmos, com a API em
+  2 réplicas (`deploy/k8s/`).
+- **As setas ④ a ⑥ são o e-mail de confirmação (bloco 10).** O job leva tudo o que o e-mail precisa (destinatário,
+  nome e link), então o Serviço de Notificações não tem banco nem papel no Postgres. Fila fora não impede o
+  cadastro (T-RES-06).
 - **Em laranja, o Portal.** Está pronto e testado, mas fala com o simulador do contrato.
 - **Em cinza tracejado, o que não foi construído.**
 - **A seta ③ é a principal mudança em relação à proposta.** O Serviço de Importação não grava contatos no
@@ -291,7 +302,7 @@ flowchart TB
 | **PostgreSQL** | Implementado | `db/migrations/`, `db/init/` | RLS com `ENABLE` + `FORCE` e `NULLIF` em toda tabela com `tenant_id`; nenhum papel de aplicação com `BYPASSRLS` | T-RLS-01 a 19 |
 | **migrate** | Implementado | `db/migrate.js`, `db/Dockerfile` | Roda como `migrador`, só no job de migração; a senha não chega a nenhum serviço | T-RLS-15, T-RLS-19 |
 | **Portal Web** | Implementado contra o simulador; integração pendente (Fase 6 do bloco 13) | `web/` | JWT no `sessionStorage`, tenant nunca em URL, query ou corpo | T-WEB-01 (simulador) |
-| **Serviço de Notificações** | Planejado — bloco 10 | — | — | — |
+| **Serviço de Notificações** | Implementado no bloco 10, só o e-mail de confirmação; Mailpit no lugar do provedor | `services/notificacoes/`, `deploy/k8s/60-notificacoes.yaml` | Não tem banco: recebe no job só o destinatário do próprio cadastro. O link leva um token com `finalidade` que não serve como sessão | T-AUTH-09 a 13, T-RES-06, T-OBS-04, T-CQ03-01 |
 | **Gerador de Documentos** | Fora do escopo do semestre ([`contrato-api.md`](contrato-api.md), seção 10) | — | — | — |
 | **Armazenamento S3** | Adiado — ver [ADR-004](adr/adr-004-comunicacao-entre-servicos.md) (o CSV vai no payload do job) | — | — | — |
 

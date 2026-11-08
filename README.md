@@ -45,7 +45,7 @@ Checklist completo, item a item, em [`docs/etapa-2.md`](docs/etapa-2.md).
 | Comunicação entre os serviços, decidida e justificada | [ADR-004](docs/adr/adr-004-comunicacao-entre-servicos.md): fila, gravação pela API, token de serviço, idempotência, CSV no payload |
 | Isolamento entre tenants, demonstrado ao vivo | [`scripts/demo-isolamento.ps1`](scripts/demo-isolamento.ps1) e [`tests/isolamento.test.js`](tests/isolamento.test.js) (CQ-02) |
 | Isolamento garantido pelo banco | [`db/migrations/`](db/migrations/) (RLS `ENABLE` + `FORCE` + `NULLIF`) e [`tests/rls.test.js`](tests/rls.test.js) |
-| Um serviço cai e o resto segue | [`scripts/demo-degradacao.ps1`](scripts/demo-degradacao.ps1) (T-RES-01 a 05 e 07) |
+| Um serviço cai e o resto segue | [`scripts/demo-degradacao.ps1`](scripts/demo-degradacao.ps1) (T-RES-01 a 07) |
 | Importação idempotente | [`tests/idempotencia.test.js`](tests/idempotencia.test.js) e [`scripts/ensaio-reprocessamento.ps1`](scripts/ensaio-reprocessamento.ps1) (T-IMP-14) |
 | Limites por plano e rate limit por tenant | [`services/api-contatos/src/planos.js`](services/api-contatos/src/planos.js) e [`tests/rate-limit.test.js`](tests/rate-limit.test.js) |
 | Rastreio de requisição entre os serviços | [`tests/observabilidade.test.js`](tests/observabilidade.test.js) (`x-request-id` atravessa a fila) |
@@ -138,8 +138,14 @@ Na raiz do repositório:
 
 ```
 npm install      # Vitest e pg (testes) e as dependências dos services/*
-npm run env      # cria o .env com senhas e segredos aleatórios; nunca sobrescreve um .env existente
+npm run env      # cria o .env com senhas e segredos aleatórios; se já existe, só acrescenta as chaves que faltam
 ```
+
+**Depois de um `git pull`, rode `npm run env`.** Quando o `.env.example` ganha uma variável nova (ex.:
+`PORTAL_URL` no bloco 10), um `.env` antigo não a tem e o compose recusa subir ("defina PORTAL_URL no .env").
+Com o `.env` já existente, o `npm run env` só **acrescenta no fim** as chaves que faltam, sem alterar as que
+já estão lá, e imprime apenas os nomes delas. Uma chave nova que seja segredo ganha valor aleatório; as
+demais vêm com o valor do `.env.example`.
 
 O `.env` fica fora do git. O `.env.example` mostra as variáveis com valores falsos. Leia
 "[O `.env` e as senhas do banco](#o-env-e-as-senhas-do-banco)" antes de trocar uma senha.
@@ -194,7 +200,7 @@ Todos sem pausa com `-SemPausa`, e saem com código 0 se deu tudo certo ou 1 se 
 | Script | O que mostra | Onde roda |
 |---|---|---|
 | `scripts\demo-isolamento.ps1` | A DevSolo tenta ler, alterar e excluir um contato da TechConsult pelo id: 404 nas três (CQ-02) | Compose; no kind com `-BaseUrl http://localhost:30080` |
-| `scripts\demo-degradacao.ps1` | Para o worker, o Redis e o banco, um de cada vez, e mostra o que segue funcionando; religa tudo no fim (T-RES-01 a 05 e 07) | Só compose |
+| `scripts\demo-degradacao.ps1` | Para o worker, o Redis e o banco, um de cada vez, e mostra o que segue funcionando; religa tudo no fim (T-RES-01 a 07) | Só compose |
 | `scripts\ensaio-reprocessamento.ps1` | Mata o worker no meio de uma importação de 5.000 linhas: conclui sem duplicar. Com `-Quedas 2`, termina como `falhou` (T-IMP-14). Leva de 1 a 3 min | Só compose |
 
 Exemplo:
@@ -259,7 +265,7 @@ capabilities do Linux e com `no-new-privileges`.
 são gravadas **só no primeiro boot** do Postgres, quando o volume `pgdados` está vazio
 (`db/init/01-papeis.sh`). Depois disso, trocar uma senha no `.env` não muda o banco: o papel continua com
 a senha antiga, e a conexão com a nova falha com `password authentication failed`. Por isso o
-`npm run env` **nunca** sobrescreve um `.env` existente. Para trocar uma senha de propósito, há dois
+`npm run env` **nunca** sobrescreve uma chave de um `.env` existente (só acrescenta as que faltam). Para trocar uma senha de propósito, há dois
 caminhos:
 
 - **sem perder dados:** troque no `.env` e no banco, com o mesmo valor:
