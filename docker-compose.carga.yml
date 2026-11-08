@@ -1,0 +1,13 @@
+# Override SÓ do ensaio de carga (bloco 9): Postgres do tamanho da instância de produção do ADR-001
+# (linha "Custo de instância PostgreSQL gerenciada": 1 vCPU, 2 GB RAM).
+#
+#   docker compose -f docker-compose.yml -f docker-compose.carga.yml up -d --no-deps --force-recreate --wait postgres
+#
+# Quem usa é o scripts/medir-cq01.ps1 -RecursosProducao, que no fim recria o postgres SEM este arquivo e confere
+# que os limites saíram. A API e o worker ficam sem limite: o projeto não define o tamanho deles.
+services:
+  postgres:
+    cpus: 1.0
+    mem_limit: 2g
+    # Igual ao mem_limit: sem swap extra. Uma instância gerenciada de 2 GB não ganha memória do disco.
+    memswap_limit: 2g

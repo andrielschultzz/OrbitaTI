@@ -1,0 +1,12 @@
+Janelas (UTC):
+  importação 1: 21:24:41.164 → 21:25:06.263  (25.1 s, concluida)
+  importação 2: 21:25:01.164 → 21:25:26.268  (25.1 s, concluida)
+  importação 3: 21:25:21.162 → 21:25:46.258  (25.1 s, concluida)
+
+| grupo | n | p50 (ms) | p95 (ms) | p99 (ms) | máx (ms) |
+|---|---:|---:|---:|---:|---:|
+| na janela | 216 | 3.1 | 4.7 | 5.3 | 5.9 |
+| geral | 400 | 3.2 | 5.0 | 6.0 | 7.6 |
+
+Falhas dos observadores: 0 no total, 0 na janela
+VEREDITO CQ-01: PASSOU (p95 < 800 ms, máx < 2000 ms e 0 falhas, no grupo "na janela")

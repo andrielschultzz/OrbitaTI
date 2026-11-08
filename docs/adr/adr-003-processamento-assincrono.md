@@ -183,6 +183,7 @@ O pico de um tenant vira rajadas curtas em vez de um bloqueio longo, o que torna
 | Mais de 20% dos tenants estourarem a quota mensalmente | A quota está apertada demais e virou atrito comercial |
 | Fila acumular mais de 1.000 jobs pendentes | Faltam workers; reavaliar escala horizontal (e refazer a conta da `concurrency: 2`, ADR-004) |
 | Mais de 20% dos tenants receberem 429 de rate limit num mês | 60 req/min por usuário está apertado para o uso real do Portal |
+| A medição do CQ-01 no Postgres de produção real (disco de rede incluído) também não mostrar diferença entre com e sem a mitigação | **Registrado em 08/11/2026 (bloco 9).** O [ensaio do CQ-01](../ensaios/cq01-2026-11-08.md) não achou diferença medível, nem com o Postgres limitado a 1 vCPU e 2 GB: o máximo na janela foi de 7,7 ms com a mitigação e 5,6 ms sem ela. A pausa custa ~25 s por importação de 5.000 linhas, contra < 1 s sem ela. A decisão **não muda agora**, porque o ensaio rodou em disco NVMe local, num núcleo rápido. Se confirmar, reavaliar: pausa menor, pausa só acima de um tamanho, ou pausa adaptativa pela latência do banco |
 
 ## Referências
 

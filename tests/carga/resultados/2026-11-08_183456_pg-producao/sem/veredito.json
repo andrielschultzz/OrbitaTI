@@ -1,0 +1,48 @@
+{
+  "janelas": [
+    {
+      "importacao": "1",
+      "inicio": 1794173855194,
+      "fim": 1794173856205,
+      "status": "concluida",
+      "duracao_s": 1.011
+    },
+    {
+      "importacao": "2",
+      "inicio": 1794173875196,
+      "fim": 1794173876208,
+      "status": "concluida",
+      "duracao_s": 1.012
+    },
+    {
+      "importacao": "3",
+      "inicio": 1794173895193,
+      "fim": 1794173896206,
+      "status": "concluida",
+      "duracao_s": 1.013
+    }
+  ],
+  "na_janela": {
+    "n": 10,
+    "p50": 3.491477,
+    "p95": 5.59972,
+    "p99": 5.59972,
+    "max": 5.59972
+  },
+  "geral": {
+    "n": 400,
+    "p50": 3.077822,
+    "p95": 5.292644,
+    "p99": 5.758082,
+    "max": 6.815759
+  },
+  "falhas": {
+    "total": 0,
+    "na_janela": 0
+  },
+  "veredito": "sem critério",
+  "motivos": [],
+  "avisos": [
+    "n na janela = 10 < 20: amostra pequena demais, serve só como registro"
+  ]
+}
