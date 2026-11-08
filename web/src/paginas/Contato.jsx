@@ -213,9 +213,13 @@ export default function Contato() {
 
       <AcoesRapidas contato={contato} />
 
+      {/*
+        Ordem no DOM = ordem no celular (o que o Marcelo mais usa primeiro):
+        estágio -> nova interação + histórico -> dados. O leitor de tela segue a mesma ordem.
+        No desktop (lg), duas colunas: estágio e dados à esquerda, histórico à direita.
+      */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-start">
-        <div className="flex flex-col gap-6">
-          <section aria-labelledby="titulo-estagio" className="cartao p-4 md:p-5">
+          <section aria-labelledby="titulo-estagio" className="cartao p-4 md:p-5 lg:col-start-1 lg:row-start-1">
             <h2 id="titulo-estagio" className="sr-only">
               Estágio
             </h2>
@@ -229,7 +233,28 @@ export default function Contato() {
             />
           </section>
 
-          <section aria-labelledby="titulo-dados" className="cartao flex flex-col gap-4 p-4 md:p-5">
+        <section
+          aria-labelledby="titulo-historico"
+          className="cartao flex flex-col gap-5 p-4 md:p-5 lg:col-start-2 lg:row-span-2 lg:row-start-1"
+        >
+          <h2 id="titulo-historico" className="text-lg">
+            Histórico
+          </h2>
+          <NovaInteracao
+            contatoId={id}
+            aoRegistrar={({ interacao, contato: atualizado }) => {
+              setContato(atualizado);
+              setInteracoes((lista) =>
+                [interacao, ...lista].sort((a, b) => Date.parse(b.ocorrida_em) - Date.parse(a.ocorrida_em)),
+              );
+            }}
+          />
+          <div className="border-t border-borda-sutil pt-5">
+            <Historico itens={interacoes} />
+          </div>
+        </section>
+
+          <section aria-labelledby="titulo-dados" className="cartao flex flex-col gap-4 p-4 md:p-5 lg:col-start-1 lg:row-start-2">
             <h2 id="titulo-dados" className="text-lg">
               Dados
             </h2>
@@ -267,36 +292,32 @@ export default function Contato() {
                 erro={erros.observacao}
                 maxLength={500}
               />
-              <div className="flex flex-col-reverse gap-3 md:flex-row md:justify-between">
-                <Botao variante="perigo" icone={Trash2} onClick={() => setConfirmarExclusao(true)}>
-                  Excluir contato
-                </Botao>
-                <Botao type="submit" icone={Save} carregando={salvando} textoCarregando="Salvando…" disabled={!alterado}>
+              <div className="flex md:justify-end">
+                <Botao
+                  type="submit"
+                  icone={Save}
+                  carregando={salvando}
+                  textoCarregando="Salvando…"
+                  disabled={!alterado}
+                  className="w-full md:w-auto"
+                >
                   Salvar alterações
                 </Botao>
               </div>
             </form>
           </section>
-        </div>
-
-        <section aria-labelledby="titulo-historico" className="cartao flex flex-col gap-5 p-4 md:p-5">
-          <h2 id="titulo-historico" className="text-lg">
-            Histórico
-          </h2>
-          <NovaInteracao
-            contatoId={id}
-            aoRegistrar={({ interacao, contato: atualizado }) => {
-              setContato(atualizado);
-              setInteracoes((lista) =>
-                [interacao, ...lista].sort((a, b) => Date.parse(b.ocorrida_em) - Date.parse(a.ocorrida_em)),
-              );
-            }}
-          />
-          <div className="border-t border-borda-sutil pt-5">
-            <Historico itens={interacoes} />
-          </div>
-        </section>
       </div>
+
+      {/* Excluir fica no fim da página, longe do "Salvar": ação destrutiva não pode estar colada na comum. */}
+      <section aria-labelledby="titulo-excluir" className="flex flex-col gap-2 border-t border-borda-sutil pt-6">
+        <h2 id="titulo-excluir" className="sr-only">
+          Excluir contato
+        </h2>
+        <Botao variante="perigo" icone={Trash2} onClick={() => setConfirmarExclusao(true)} className="self-start">
+          Excluir contato
+        </Botao>
+        <p className="text-sm text-texto-mudo">Apaga o contato e todo o histórico de interações.</p>
+      </section>
 
       <Dialogo
         aberto={confirmarExclusao}

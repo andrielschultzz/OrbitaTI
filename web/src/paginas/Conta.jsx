@@ -11,8 +11,8 @@ import Botao from '../componentes/ui/Botao.jsx';
 import Campo from '../componentes/ui/Campo.jsx';
 import Dialogo from '../componentes/ui/Dialogo.jsx';
 
-// Confirmação do cancelamento. O bloco 13 pede o nome da empresa, mas o Portal não o conhece
-// (não está no token e nenhuma rota do contrato o devolve). Decisão pendente com a equipe.
+// Confirmação do cancelamento: digitar CANCELAR (decisão registrada no bloco 13). O nome da empresa
+// não serve porque o Portal não o conhece: não está no token e nenhuma rota do contrato o devolve.
 const PALAVRA_CONFIRMACAO = 'CANCELAR';
 
 function Plano({ plano }) {
@@ -23,7 +23,6 @@ function Plano({ plano }) {
     ['Linhas por importação', l.linhas_por_importacao.toLocaleString('pt-BR')],
     ['Importações ao mesmo tempo', l.importacoes_simultaneas],
     ['Tamanho máximo do arquivo', formatarBytes(l.tamanho_maximo_csv_bytes)],
-    ['Ações por minuto', l.requisicoes_por_minuto.toLocaleString('pt-BR')],
   ];
   return (
     <section aria-labelledby="titulo-plano" className="cartao flex flex-col gap-4 p-5">
@@ -179,13 +178,14 @@ export default function Conta() {
         </h2>
         <div className="flex flex-wrap gap-3">
           <AlternadorTema />
-          <button type="button" className="botao botao-secundario" onClick={sair}>
-            <LogOut aria-hidden="true" className="size-5" /> Sair
-          </button>
         </div>
       </section>
 
       {sessao.papel === 'admin' && <AreaAdmin />}
+
+      <button type="button" className="botao botao-secundario self-start" onClick={sair}>
+        <LogOut aria-hidden="true" className="size-5" /> Sair da conta
+      </button>
     </div>
   );
 }

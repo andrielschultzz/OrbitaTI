@@ -59,6 +59,7 @@ export default function Contatos() {
   }
 
   const { carregando, itens, limite, erro } = estado;
+  const buscando = busca.trim() !== ''; // texto digitado (antes do debounce: o bloco some na hora)
   const primeiroUso = !carregando && !erro && !termo && itens.length === 0;
   const semResultado = !carregando && !erro && termo && itens.length === 0;
   const listaCheia = limite !== null && itens.length >= limite;
@@ -68,8 +69,6 @@ export default function Contatos() {
       <div className="flex items-center justify-between gap-4">
         <h1 className="text-2xl md:text-3xl">Contatos</h1>
       </div>
-
-      {!primeiroUso && <SaindoDeOrbita />}
 
       {primeiroUso ? (
         <section className="cartao flex flex-col items-center gap-4 px-5 py-10 text-center">
@@ -88,10 +87,7 @@ export default function Contatos() {
           </Link>
         </section>
       ) : (
-        <section aria-labelledby="titulo-lista" className="flex flex-col gap-3">
-          <h2 id="titulo-lista" className="sr-only">
-            Todos os contatos
-          </h2>
+        <>
           <div className="flex flex-col gap-1.5">
             <label htmlFor="busca-contatos" className="text-sm font-medium text-texto-secundario">
               Buscar por nome, e-mail ou empresa
@@ -111,6 +107,14 @@ export default function Contatos() {
               />
             </div>
           </div>
+
+          {/* Com texto na busca, só os resultados. O "Saindo de órbita" volta quando a busca esvazia. */}
+          {!buscando && <SaindoDeOrbita />}
+
+          <section aria-labelledby="titulo-lista" className="flex flex-col gap-3">
+          <h2 id="titulo-lista" className="sr-only">
+            {buscando ? 'Resultados da busca' : 'Todos os contatos'}
+          </h2>
 
           <p aria-live="polite" className="min-h-5 text-sm text-texto-mudo">
             {!carregando && !erro && itens.length > 0 &&
@@ -183,7 +187,8 @@ export default function Contatos() {
               ))}
             </ul>
           )}
-        </section>
+          </section>
+        </>
       )}
 
       <FolhaNovoContato aberto={novoAberto} aoFechar={fecharNovo} aoCriar={aoCriar} />

@@ -37,7 +37,7 @@ export default function MapaOrbita({ itens, aoAbrir, className = '' }) {
       viewBox={`0 0 ${LADO} ${LADO}`}
       role="img"
       aria-label={descricao}
-      className={`mapa-orbita block h-auto w-full max-w-[320px] ${className}`}
+      className={`mapa-orbita block h-auto w-full ${className}` /* largura máxima: quem usa decide */}
     >
       <defs>
         <radialGradient id="mapa-halo">
@@ -114,8 +114,8 @@ export default function MapaOrbita({ itens, aoAbrir, className = '' }) {
             onClick={() => aoAbrir?.(c.id)}
             data-contato={c.id}
           >
-            {/* área de toque de ~44 px no tamanho em que o mapa aparece no celular */}
-            <circle cx={x} cy={y} r="24" fill="transparent" />
+            {/* área de toque: r=32 no viewBox de 320 = ~44 px com o mapa a 220 px no celular */}
+            <circle cx={x} cy={y} r="32" fill="transparent" />
             <circle cx={x} cy={y} r="7" fill={cor} filter="url(#mapa-brilho)" />
             <circle cx={x} cy={y} r="3" fill="var(--texto)" />
             <text

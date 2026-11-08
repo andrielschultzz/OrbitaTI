@@ -311,7 +311,7 @@ export default function PaginaMarca() {
 
       <Secao titulo="Saindo de órbita">
         <div className="cartao grid items-center gap-6 p-5 md:grid-cols-[320px_1fr]">
-          <MapaOrbita itens={FRIOS} aoAbrir={setAberto} className="mx-auto" />
+          <MapaOrbita itens={FRIOS} aoAbrir={setAberto} className="mx-auto max-w-[320px]" />
           <ul className="flex flex-col divide-y divide-borda-sutil">
             {FRIOS.map((c) => (
               <li key={c.id}>

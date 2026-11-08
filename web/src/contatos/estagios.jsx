@@ -23,16 +23,17 @@ export function SeloEstagio({ valor, className = '' }) {
 }
 
 /** Seletor segmentado acessível: um grupo de rádios estilizado (setas do teclado funcionam). */
+// Colunas por quantidade de opções. Com 5 (tipos de interação), no celular quebra em 3 + 2:
+// em 375 px cada coluna teria ~57 px e "WhatsApp" não cabe sem cortar.
+const COLUNAS = { 4: 'grid-cols-4', 5: 'grid-cols-3 md:grid-cols-5' };
+
 /** `empilhado`: ícone sempre em cima do texto (para muitas opções ou coluna estreita). */
 export function SeletorSegmentado({ legenda, nome, opcoes, valor, aoMudar, desabilitado = false, empilhado = false }) {
   return (
     // min-w-0: por padrão um <fieldset> não encolhe abaixo do conteúdo e causava rolagem horizontal em 375 px.
     <fieldset className="flex min-w-0 flex-col gap-1.5" disabled={desabilitado}>
       <legend className="mb-1.5 text-sm font-medium text-texto-secundario">{legenda}</legend>
-      <div
-        className="grid gap-1 rounded-campo border border-borda-campo p-1"
-        style={{ gridTemplateColumns: `repeat(${opcoes.length}, minmax(0, 1fr))` }}
-      >
+      <div className={`grid gap-1 rounded-campo border border-borda-campo p-1 ${COLUNAS[opcoes.length] ?? 'grid-cols-4'}`}>
         {opcoes.map(({ valor: v, rotulo, Icone }) => {
           const ativo = valor === v;
           return (
@@ -51,7 +52,7 @@ export function SeletorSegmentado({ legenda, nome, opcoes, valor, aoMudar, desab
                 className="sr-only"
               />
               {Icone && <Icone aria-hidden="true" className="size-4 shrink-0" />}
-              <span className="truncate">{rotulo}</span>
+              <span className="leading-tight">{rotulo}</span>
             </label>
           );
         })}

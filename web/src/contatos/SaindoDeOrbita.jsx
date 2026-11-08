@@ -42,7 +42,7 @@ export default function SaindoDeOrbita() {
 
       {carregando && (
         <div className="grid gap-4 md:grid-cols-[minmax(0,280px)_1fr]" aria-busy="true">
-          <div className="mx-auto aspect-square w-full max-w-[280px] animate-pulse rounded-full bg-superficie-ativa" />
+          <div className="mx-auto aspect-square w-full max-w-[220px] animate-pulse rounded-full bg-superficie-ativa md:max-w-[280px]" />
           <div className="flex flex-col gap-2">
             {[0, 1, 2, 3, 4].map((i) => (
               <div key={i} className="h-14 animate-pulse rounded-campo bg-superficie-ativa" />
@@ -72,7 +72,7 @@ export default function SaindoDeOrbita() {
           <MapaOrbita
             itens={dados.itens}
             aoAbrir={(id) => navegar(`/contatos/${id}`)}
-            className="mx-auto max-w-[280px]"
+            className="mx-auto max-w-[220px] md:max-w-[280px]"
           />
           <ul className="flex flex-col divide-y divide-borda-sutil">
             {dados.itens.map((c) => (

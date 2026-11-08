@@ -196,8 +196,8 @@
      Pare de consultar ao sair da tela, pause com a aba oculta (`visibilitychange`) e respeite o `Retry-After` de um 429. Por quê: no plano Individual o limite é de 60 req/min, e só o polling de 2 s já gasta 30 por minuto.
    - **Resultado:** "{total_linhas − linhas_invalidas} contatos importados, {linhas_invalidas} linhas com erro", com um link para os contatos. O detalhe de cada linha não aparece: ele fica no schema `importacao`, que a API não lê (regra 10).
 5. **Conta**
-   - Sempre mostra o plano atual, os limites (de `GET /planos`, escolhido pelo claim `plano`), o alternador de tema e o botão Sair.
-   - Só para o papel admin: "Exportar meus dados" (download) e "Cancelar conta", com confirmação digitando o nome da empresa. Depois de cancelar, sai da conta na hora. O simulador implementa as duas rotas. Se a API real responder 404 nelas, mostre "Essa função ainda não está disponível." (pelo contrato essas rotas nunca devolvem 404, então 404 ali só significa que o bloco 14 ainda não existe). Nada de flag nem requisição de teste.
+   - Sempre mostra o plano atual, os limites (de `GET /planos`, escolhido pelo claim `plano`), o alternador de tema e o botão Sair (fora do bloco de preferências). "Requisições por minuto" não aparece: é proteção técnica, não vantagem do plano.
+   - Só para o papel admin: "Exportar meus dados" (download) e "Cancelar conta", com confirmação digitando CANCELAR. (Mudança decidida na Fase 3: o texto original pedia o nome da empresa, mas o Portal não o conhece; ele não está no token e nenhuma rota do contrato o devolve. Digitar uma palavra fixa é o padrão de GitHub e Vercel e cumpre o objetivo: evitar o clique por engano.) Depois de cancelar, sai da conta na hora. O simulador implementa as duas rotas. Se a API real responder 404 nelas, mostre "Essa função ainda não está disponível." (pelo contrato essas rotas nunca devolvem 404, então 404 ali só significa que o bloco 14 ainda não existe). Nada de flag nem requisição de teste.
 
 **Mensagens por `codigo`.** Use o `erro` da API, menos onde esta tabela pede um texto específico da tela.
 
