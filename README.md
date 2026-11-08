@@ -3,7 +3,7 @@
 CRM enxuto e multi-tenant para profissionais de TI autônomos e consultorias de até dez pessoas.
 
 **Disciplina:** Arquitetura de Software SaaS (8512) — EC6, SETREM 2026-2
-**Unidade:** Andriel Schultz e Cristofer
+**Unidade:** Andriel Schultz e Cristofer Mateus Rutzen
 
 ---
 
@@ -18,6 +18,7 @@ Profissional de TI que pega trabalho por fora vive de indicação, mas o relacio
 | Modelo de tenancy | **Pool** com Row-Level Security | Silo custaria R$ 120/mês por tenant contra ticket médio de R$ 89/mês |
 | Identidade do tenant | Claim no **JWT assinado** | Zero parâmetros de tenant nas rotas — verificado por teste |
 | Trabalho pesado | **Fila** com lote de 100 e quota | Protege busca de outros tenants em p95 < 800 ms |
+| Comunicação entre serviços | **Fila** da API para a Importação; a Importação grava **pela API** | CSV de até 1 MB no job (≈ 5.000 linhas de ~200 bytes); pior caso ≈ 117 MB no Redis |
 
 ## Etapa 1 — os cinco artefatos
 
@@ -28,6 +29,26 @@ Profissional de TI que pega trabalho por fora vive de indicação, mas o relacio
 | 1.3 | ADRs | [`docs/adr/`](docs/adr/) — [001 tenancy](docs/adr/adr-001-tenancy.md) · [002 identidade](docs/adr/adr-002-identidade-tenant.md) · [003 assíncrono](docs/adr/adr-003-processamento-assincrono.md) |
 | 1.4 | Atributos de qualidade — 5 cenários mensuráveis | [`docs/atributos.md`](docs/atributos.md) |
 | 1.5 | Mapeamento LGPD preliminar | [`docs/lgpd.md`](docs/lgpd.md) |
+
+Os documentos da Etapa 1 foram revisados em 08/11/2026 (Bloco 7) para bater com o código: SQL das políticas,
+limites dos planos, comunicação entre serviços. Cada um traz uma nota de revisão datada.
+
+## Etapa 2 — núcleo multi-tenant rodando
+
+Checklist completo, item a item, em [`docs/etapa-2.md`](docs/etapa-2.md).
+
+| O que a Etapa 2 pede | Evidência |
+|---|---|
+| 2 ou mais serviços | [`services/api-contatos/`](services/api-contatos/) e [`services/importacao/`](services/importacao/), cada um com papel próprio no banco e schema próprio |
+| Comunicação entre os serviços, decidida e justificada | [ADR-004](docs/adr/adr-004-comunicacao-entre-servicos.md): fila, gravação pela API, token de serviço, idempotência, CSV no payload |
+| Isolamento entre tenants, demonstrado ao vivo | [`scripts/demo-isolamento.ps1`](scripts/demo-isolamento.ps1) e [`tests/isolamento.test.js`](tests/isolamento.test.js) (CQ-02) |
+| Isolamento garantido pelo banco | [`db/migrations/`](db/migrations/) (RLS `ENABLE` + `FORCE` + `NULLIF`) e [`tests/rls.test.js`](tests/rls.test.js) |
+| Um serviço cai e o resto segue | [`scripts/demo-degradacao.ps1`](scripts/demo-degradacao.ps1) (T-RES-01 a 05 e 07) |
+| Importação idempotente | [`tests/idempotencia.test.js`](tests/idempotencia.test.js) e [`scripts/ensaio-reprocessamento.ps1`](scripts/ensaio-reprocessamento.ps1) (T-IMP-14) |
+| Limites por plano e rate limit por tenant | [`services/api-contatos/src/planos.js`](services/api-contatos/src/planos.js) e [`tests/rate-limit.test.js`](tests/rate-limit.test.js) |
+| Rastreio de requisição entre os serviços | [`tests/observabilidade.test.js`](tests/observabilidade.test.js) (`x-request-id` atravessa a fila) |
+| Deploy em Kubernetes | [`deploy/k8s/`](deploy/k8s/) e [`scripts/deploy-kind.ps1`](scripts/deploy-kind.ps1) |
+| Arquitetura atualizada | [Estado na Etapa 2](docs/02-arquitetura-c4.md#estado-na-etapa-2) no C4 |
 
 ## Números de referência do produto
 
@@ -48,21 +69,28 @@ Premissas declaradas em 12 meses, usadas em todos os artefatos:
 ```
 docs/
 ├── 01-visao-produto.md          # 1.1 — problema, cliente fictício, personas
-├── 02-arquitetura-c4.md         # 1.2 — C4 níveis 1, 2 e esboço do 3
+├── 02-arquitetura-c4.md         # 1.2 — C4 níveis 1, 2 e esboço do 3; "Estado na Etapa 2"
 ├── atributos.md                 # 1.4 — cenários CQ-01 a CQ-05
 ├── lgpd.md                      # 1.5 — inventário, papéis, medidas e riscos
 ├── adr/
 │   ├── adr-001-tenancy.md       # pool x schema x silo, com a conta
 │   ├── adr-002-identidade-tenant.md
-│   └── adr-003-processamento-assincrono.md
+│   ├── adr-003-processamento-assincrono.md
+│   └── adr-004-comunicacao-entre-servicos.md
+├── etapa-2.md                   # checklist da Etapa 2 x evidência no repositório
 ├── contrato-api.md              # contrato HTTP entre Portal e API
+├── plano-de-testes.md           # casos T-xxx, rastreabilidade e lacunas
+├── pendencias-bloco-7.md        # histórico das decisões dos blocos 0 a 6 e onde cada uma foi parar
 ├── portal-pendencias.md         # o que falta no Portal (Fase 6) e para a VM
 ├── ensaios/                     # relatórios de ensaios (ex.: Lighthouse do Portal)
 └── atividades/
     └── enc06-andriel.md         # atividade dirigida do Encontro 06
-services/api-contatos/           # API (Fastify 5): auth, contatos; src/app.js exporta buildApp()
+services/api-contatos/           # API (Fastify 5): auth, contatos, importações, /planos, rotas /interno
+services/importacao/             # worker BullMQ: lê o CSV do job, valida, envia lotes à API
 db/                              # papéis (init/), migrações SQL e a imagem orbitati/migrate
-tests/                           # testes de integração (rls, auth, contatos), contra a stack no ar
+deploy/k8s/                      # manifests do kind (namespace orbitati)
+scripts/                         # seed, deploy no kind, demos de isolamento e de degradação, ensaio T-IMP-14
+tests/                           # testes de integração, contra a stack no ar; apoio/ = funções comuns
 web/                             # Portal Web (SPA React + nginx), pacote independente
 ├── src/                         # telas, cliente HTTP, sessão, design system em código
 ├── simulador/                   # simulador do contrato (o Portal roda sem a API)
@@ -72,18 +100,114 @@ web/                             # Portal Web (SPA React + nginx), pacote indepe
 └── Dockerfile                   # build Node 22 -> nginx não-root na porta 8080
 ```
 
-## Stack local (banco, fila e API)
+## Como rodar
 
-Requisitos: Node.js 22 ou mais novo e Docker Desktop. Na raiz do repositório:
+### Pré-requisitos
+
+- **Node.js 22** ou mais novo.
+- **Docker Desktop** (Windows), com o Docker Compose.
+- **Só para o deploy no kind:** `kind` e `kubectl`, e o cluster kind `saas` já criado, com a porta 30080 no
+  `extraPortMappings` (é o cluster dos laboratórios da disciplina).
+- **PowerShell**, que já vem no Windows, para os scripts de demonstração.
+
+### 1. Dependências e `.env`
+
+Na raiz do repositório:
 
 ```
-npm install                          # Vitest e pg (testes) e as dependências dos services/*
-npm run env                          # cria o .env com senhas aleatórias (ou copie o .env.example)
-docker compose up -d --build --wait  # Postgres, Redis, migrações e API, nesta ordem, todos prontos
-curl.exe -s http://localhost:3000/saude   # {"db":"ok"}
-npm test                             # testes de integração (tests/), contra a stack no ar
-docker compose run --rm migrate      # (opcional) aplica só as migrações pendentes
+npm install      # Vitest e pg (testes) e as dependências dos services/*
+npm run env      # cria o .env com senhas e segredos aleatórios; nunca sobrescreve um .env existente
 ```
+
+O `.env` fica fora do git. O `.env.example` mostra as variáveis com valores falsos. Leia
+"[O `.env` e as senhas do banco](#o-env-e-as-senhas-do-banco)" antes de trocar uma senha.
+
+### 2. Subir a stack (Docker Compose)
+
+```
+docker compose up -d --build --wait       # postgres, redis, migrate, api-contatos e importacao, todos prontos
+curl.exe -s http://localhost:3000/saude   # {"db":"ok","fila":"ok"}
+```
+
+A API fica em http://localhost:3000. O Serviço de Importação não publica porta: ele só fala com o Redis, o
+banco e a API.
+
+### 3. Dados de demonstração
+
+```
+npm run seed    # cria DevSolo Sistemas (marcelo@devsolo.dev, 5 contatos) e TechConsult Solutions
+                # (gestor@techconsult.com.br, 20 contatos), senha Demo@2026. Rodar de novo só avisa.
+```
+
+O seed chama a própria API (padrão `http://localhost:3000`; outro endereço com `SEED_URL`).
+
+### 4. Testes
+
+```
+npm test                    # todos os testes de integração e os unitários dos serviços (stack precisa estar no ar)
+$env:TESTES_LENTOS="1"; npm test   # inclui o T-IMP-13 (~25 s, prova a pausa de 500 ms). Use antes de entregar
+```
+
+O segundo comando é o do PowerShell; no Git Bash, `TESTES_LENTOS=1 npm test`. Os testes do Portal rodam à
+parte, dentro de `web/` (seção [Portal Web](#portal-web)).
+
+### 5. Deploy no kind
+
+```
+powershell -ExecutionPolicy Bypass -File .\scripts\deploy-kind.ps1             # build, kind load, apply, migração, rollout, seed
+powershell -ExecutionPolicy Bypass -File .\scripts\deploy-kind.ps1 -SemBuild   # só os manifests mudaram
+kubectl get pods -n orbitati
+curl.exe -s http://localhost:30080/saude
+```
+
+No kind, a API roda com 2 réplicas e fica em http://localhost:30080. O script cria o Secret
+`orbitati-segredos` a partir do `.env` só se ele ainda não existir, e nunca imprime os valores. Ele também
+**nunca** apaga namespace nem volume. O reset total (apaga o banco do kind) é
+`kubectl delete namespace orbitati`.
+
+### 6. Scripts de demonstração
+
+Todos sem pausa com `-SemPausa`, e saem com código 0 se deu tudo certo ou 1 se houve falha.
+
+| Script | O que mostra | Onde roda |
+|---|---|---|
+| `scripts\demo-isolamento.ps1` | A DevSolo tenta ler, alterar e excluir um contato da TechConsult pelo id: 404 nas três (CQ-02) | Compose; no kind com `-BaseUrl http://localhost:30080` |
+| `scripts\demo-degradacao.ps1` | Para o worker, o Redis e o banco, um de cada vez, e mostra o que segue funcionando; religa tudo no fim (T-RES-01 a 05 e 07) | Só compose |
+| `scripts\ensaio-reprocessamento.ps1` | Mata o worker no meio de uma importação de 5.000 linhas: conclui sem duplicar. Com `-Quedas 2`, termina como `falhou` (T-IMP-14). Leva de 1 a 3 min | Só compose |
+
+Exemplo:
+
+```
+powershell -ExecutionPolicy Bypass -File .\scripts\demo-isolamento.ps1             # com pausas (apresentação)
+powershell -ExecutionPolicy Bypass -File .\scripts\demo-isolamento.ps1 -SemPausa   # direto (testes e CI)
+```
+
+**O que a demo de isolamento faz:**
+
+1. Entra nas duas empresas e mostra quantos contatos cada uma vê.
+2. A DevSolo tenta ler, alterar e excluir um contato da TechConsult pelo id. Cada tentativa mostra
+   "404 — isolamento OK" ou "FALHA DE ISOLAMENTO".
+3. A TechConsult confere que o contato continua igual.
+
+Cada 404 em rota com `:id` também aparece no log da API, como evento `recurso_nao_encontrado`:
+
+```
+docker compose logs api-contatos | Select-String recurso_nao_encontrado
+```
+
+**Por que `-ExecutionPolicy Bypass`.** O Windows bloqueia scripts `.ps1` que não são assinados, e estes
+scripts não são. O `Bypass` vale **só para essa execução**: a política da máquina continua a mesma e não é
+preciso ser administrador.
+
+### 7. Logs e reset
+
+```
+docker compose logs -f api-contatos importacao   # todo log tem reqId e tenant_id
+docker compose run --rm migrate                  # aplica só as migrações pendentes
+docker compose down -v                           # derruba e APAGA os dados (reset total)
+```
+
+### Detalhes da stack local
 
 **Os testes e o rate limit.** A API limita cadastros por IP (`LIMITE_CADASTRO_POR_MIN`, padrão 60), e a
 suíte faz mais de 50 por execução. Para não somar tudo num IP só, cada arquivo de teste manda um
@@ -99,15 +223,16 @@ sucesso; se uma migração falhar, o `up` sai com erro e a API nem inicia. Cada 
 o que é seguro porque ele é idempotente.
 
 **Portas.** O Postgres (`5432`) e a API (`3000`) ficam publicados só em `127.0.0.1`: os testes rodam no
-host e precisam deles, mas ninguém da rede alcança as portas. Na VM, só o Portal fica exposto. O Redis
-não é publicado. Se o `up` falhar com `port is already allocated`, outro programa ou contêiner está
-usando a porta (`docker ps` mostra qual).
+host e precisam deles, mas ninguém da rede alcança as portas. Na VM, só o Portal fica exposto. O Redis e o
+Serviço de Importação não são publicados. Se o `up` falhar com `port is already allocated`, outro programa
+ou contêiner está usando a porta (`docker ps` mostra qual).
 
-**Imagem da API.** O build usa a raiz do repositório como contexto, porque com npm workspaces o
+**Imagens.** O build da API e do worker usa a raiz do repositório como contexto, porque com npm workspaces o
 `package-lock.json` fica lá. O `.dockerignore` da raiz deixa `.env`, `.git`, `node_modules` e `web/` de
-fora. O contêiner roda como usuário `node`, com sistema de arquivos só leitura (`/tmp` em memória), sem
+fora. Os contêineres rodam como usuário `node`, com sistema de arquivos só leitura (`/tmp` em memória), sem
 capabilities do Linux e com `no-new-privileges`.
 
+<a id="o-env-e-as-senhas-do-banco"></a>
 **O `.env` e as senhas do banco.** As senhas dos papéis (`migrador`, `api_contatos`, `importacao_svc`)
 são gravadas **só no primeiro boot** do Postgres, quando o volume `pgdados` está vazio
 (`db/init/01-papeis.sh`). Depois disso, trocar uma senha no `.env` não muda o banco: o papel continua com
@@ -127,42 +252,11 @@ qualquer WARNING: um `GRANT` ou `REVOKE` sem efeito não dá erro, só aviso. Pa
 ambiente local a pasta é montada no contêiner, então uma migração nova vale sem rebuild; mudanças no
 `migrate.js` pedem `docker compose build migrate`.
 
-### Demo de isolamento (CQ-02)
-
-Com a stack no ar:
-
-```
-npm run seed    # cria DevSolo Sistemas (marcelo@devsolo.dev, 5 contatos) e TechConsult Solutions
-                # (gestor@techconsult.com.br, 20 contatos), senha Demo@2026. Rodar de novo só avisa.
-powershell -ExecutionPolicy Bypass -File .\scripts\demo-isolamento.ps1             # com pausas (apresentação)
-powershell -ExecutionPolicy Bypass -File .\scripts\demo-isolamento.ps1 -SemPausa   # direto (testes e CI)
-```
-
-**O que a demo faz:**
-
-1. Entra nas duas empresas e mostra quantos contatos cada uma vê.
-2. A DevSolo tenta ler, alterar e excluir um contato da TechConsult pelo id. Cada tentativa mostra
-   "404 — isolamento OK" ou "FALHA DE ISOLAMENTO".
-3. A TechConsult confere que o contato continua igual.
-
-Termina com código de saída 0 se deu tudo certo e 1 se houve falha. No kind, use `-BaseUrl http://localhost:30080`.
-
-**Por que `-ExecutionPolicy Bypass`.** O Windows bloqueia scripts `.ps1` que não são assinados, e este
-script não é. O `Bypass` vale **só para essa execução**: a política da máquina continua a mesma e não é
-preciso ser administrador. Rodar `.\scripts\demo-isolamento.ps1` direto funciona só se a política da
-máquina já permitir.
-
-Cada 404 em rota com `:id` também aparece no log da API, como evento `recurso_nao_encontrado`. Para ver:
-
-```
-docker compose logs api-contatos | Select-String recurso_nao_encontrado
-```
-
 ## Portal Web
 
-> **Estado em 07/11/2026:** o Portal está pronto e testado, mas roda contra o **simulador** do contrato
-> (`web/simulador/`), não contra a API real, que ainda não existe. A integração com a API real (bloco 13,
-> Fase 6) está pendente; ver [`docs/portal-pendencias.md`](docs/portal-pendencias.md).
+> **Estado em 08/11/2026:** o Portal está pronto e testado, mas roda contra o **simulador** do contrato
+> (`web/simulador/`). A API real já existe (Etapa 2); falta a integração do Portal com ela e a entrada do `web`
+> no compose e no kind (bloco 13, Fase 6). Ver [`docs/portal-pendencias.md`](docs/portal-pendencias.md).
 
 Requisitos: Node.js 22 ou mais novo e Docker Desktop. Todos os comandos rodam dentro de `web/`:
 
@@ -201,7 +295,8 @@ curl.exe -s -o NUL -w "%{http_code}" http://localhost:8080/api/interno/x   # 404
 curl.exe -sI http://localhost:8080                                         # CSP e cabeçalhos de segurança
 ```
 
-**3. Pelo Docker Compose:** ainda não. O serviço `web` entra no compose na Fase 6, junto com a API real.
+**3. Pelo Docker Compose:** ainda não. O serviço `web` entra no compose na Fase 6, junto com a integração
+com a API real.
 
 **Testes do Portal** (com a imagem e o simulador do item 2 no ar):
 

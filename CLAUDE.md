@@ -13,7 +13,9 @@ oralmente tudo o que for gerado: explique o porquê de cada decisão em linguage
 - `docs/02-arquitetura-c4.md` — containers e as 3 camadas de isolamento
 - `docs/adr/adr-001-tenancy.md` — **pool + RLS** (decidido, não reabrir)
 - `docs/adr/adr-002-identidade-tenant.md` — `tenant_id` só no JWT, nunca em parâmetro
-- `docs/adr/adr-003-processamento-assincrono.md` — fila, lotes de 100, pausa de 500 ms, quota
+- `docs/adr/adr-003-processamento-assincrono.md` — fila, lotes de 100, pausa de 500 ms, quota, rate limit
+- `docs/adr/adr-004-comunicacao-entre-servicos.md` — fila API → Importação, gravação pela API, token de serviço,
+  idempotência, CSV no payload (sem S3), quedas do Redis e da Importação, pendências de código P-1 a P-3
 - `docs/atributos.md` — cenários CQ-01 a CQ-05 (os testes medem estes números)
 - `docs/lgpd.md` — OrbitaTI é OPERADOR dos dados dos contatos
 - `docs/contrato-api.md` — contrato HTTP entre Portal e API (rotas, formatos, erros com `codigo`).
@@ -137,7 +139,10 @@ Variáveis do Portal:
 | Lote de importação | 100 linhas, pausa de 500 ms entre lotes |
 | Linhas por importação | individual 100 · equipe 5.000 (5.000 ≈ 1 MB ÷ ~200 bytes por linha; CSV vai no payload do job) |
 | Importações simultâneas por tenant | individual 2 · equipe 5 — **contadas no banco** (`orbita.importacoes` com status `na_fila`/`processando`) no `POST /importacoes`; não usar recurso do BullMQ Pro |
-| Intervalo entre importações | **nenhum**: a proteção vem do lote + pausa + `concurrency: 2` do worker (no máximo 2 importações tocam o banco ao mesmo tempo). Substitui o intervalo de 5 min do ADR-003; registrar no ADR-004 |
+| Intervalo entre importações | **nenhum**: a proteção vem do lote + pausa + `concurrency: 2` do worker (no máximo 2 importações tocam o banco ao mesmo tempo). Substitui o intervalo de 5 min do ADR-003; registrado no ADR-004 |
+| Concorrência do worker | `concurrency: 2` (constante no `worker.js`), **por processo**: no máximo 2 × 100 = 200 linhas de importação gravando ao mesmo tempo. Mais réplicas do worker multiplicam esse número (gatilho do ADR-004) |
+| Lote máximo na rota `/lotes` | 5.000 contatos (corpo até 4 MB), só para o bloco 9 rodar "sem a mitigação" (`IMPORT_LOTE=5000`). O worker aceita `IMPORT_LOTE` de 1 a 5.000; o padrão é 100 |
+| Retry do job | 3 tentativas, espera de 2 s e 4 s (backoff exponencial); job que falhou fica 24 h no Redis (`removeOnFail`) |
 | Rate limit por tenant | 60 req/min por usuário permitido no plano (individual 1 × 60 = 60 · equipe 10 × 60 = 600); 60/min = um clique por segundo em rajada |
 | Armazenamento do rate limit | **Redis** (a API roda com 2 réplicas no kind; em memória cada réplica contaria separado e o limite dobraria). Redis fora → `skipOnError: true`, o limite é ignorado em vez de derrubar a API |
 | Rate limit de login | 10 req/min por IP + e-mail |
@@ -150,12 +155,13 @@ Variáveis do Portal:
 Planos, preços e limites ficam em um só lugar: `services/api-contatos/src/planos.js` (é a "feature flag por plano"),
 exposto pela rota pública `GET /planos` (sem token e sem rate limit).
 
-## Documentos da Etapa 1 desatualizados
+## Documentos da Etapa 1 (revisados no Bloco 7)
 
-Os docs da Etapa 1 têm SQL simplificado que **não deve ser copiado**: `current_setting('app.tenant_id')` sem
-`true` e sem `NULLIF` (dá erro sem tenant) e `SET LOCAL` com valor concatenado. Quando doc e este arquivo
-divergirem, **este arquivo prevalece**. As divergências conhecidas estão em `docs/pendencias-bloco-7.md` e
-são corrigidas no Bloco 7 — não corrija docs antes disso, a menos que eu peça.
+Os docs da Etapa 1 foram corrigidos em 08/11/2026 (Bloco 7) para o SQL e as decisões deste arquivo. Cada um traz
+uma nota de revisão datada, e o desenho original ficou como registro (o C4 tem a seção "Estado na Etapa 2").
+O histórico das contradições (C1 a C12) e das decisões dos blocos 0 a 6, com onde cada uma foi parar, está em
+`docs/pendencias-bloco-7.md`. Se doc e este arquivo divergirem de novo, **este arquivo prevalece**: corrija o doc
+no mesmo passo e registre a mudança.
 
 ## Observabilidade
 

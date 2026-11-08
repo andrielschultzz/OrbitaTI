@@ -1,7 +1,7 @@
 # 1.1 — Visão do Produto: OrbitaTI
 
-**Unidade:** Andriel Schultz e Cristofer
-**Disciplina:** Arquitetura de Software SaaS — EC7, SETREM 2026-2
+**Unidade:** Andriel Schultz e Cristofer Mateus Rutzen
+**Disciplina:** Arquitetura de Software SaaS (8512) — EC6, SETREM 2026-2
 **Etapa 1 — Proposta de arquitetura**
 
 ---
@@ -22,7 +22,7 @@ O nome vem da ideia de que os contatos orbitam o profissional em distâncias dif
 
 Três decisões de escopo definem o produto:
 
-**Cadastro em menos de trinta segundos.** Nome, telefone e uma linha de contexto bastam para criar um contato. Todo o resto é opcional. A ferramenta que exige formulário completo não é usada entre um atendimento e outro.
+**Cadastro em menos de trinta segundos.** Só o nome é obrigatório para criar um contato; telefone, e-mail, empresa e uma linha de contexto são opcionais. A ferramenta que exige formulário completo não é usada entre um atendimento e outro. A exceção é a importação por planilha: lá o e-mail é obrigatório em cada linha, porque é ele que impede o mesmo contato de entrar duas vezes (a linha sem e-mail vira erro de linha e as outras seguem).
 
 **O produto avisa, o usuário não precisa lembrar.** O valor não está em armazenar contatos — está em apontar quais deles estão esfriando. Um contato sem interação há noventa dias sobe para o topo da lista sozinho.
 
@@ -88,8 +88,14 @@ Essa escolha tem uma consequência que atravessa toda a arquitetura e reaparece 
 
 | Plano | Preço | Usuários | Limites principais |
 |---|---|---|---|
-| **Individual** | R$ 49/mês | 1 | Histórico de interações de 6 meses; importação até 100 contatos por job; geração manual de até 10 propostas/mês |
-| **Equipe** | R$ 249/mês | até 10 | Histórico completo; importação em massa; geração automática de propostas por evento; API REST e webhooks |
+| **Individual** | R$ 49/mês | 1 | Histórico de interações de 6 meses; importação de até 100 linhas por arquivo, 2 importações ao mesmo tempo; 60 requisições por minuto; geração manual de até 10 propostas/mês |
+| **Equipe** | R$ 249/mês | até 10 | Histórico completo; importação de até 5.000 linhas por arquivo, 5 importações ao mesmo tempo; 600 requisições por minuto (10 usuários × 60); geração automática de propostas por evento; API REST e webhooks |
+
+**Na implementação do semestre** (revisão de 08/11/2026):
+
+- **Onde ficam os números:** os limites de importação e de requisições estão em `services/api-contatos/src/planos.js`, expostos em `GET /planos`.
+- **Limite de 1 MB:** vale nos dois planos, junto com o limite de linhas. As 5.000 linhas vêm de 1 MB ÷ ~200 bytes por linha, conta no [ADR-004](adr/adr-004-comunicacao-entre-servicos.md).
+- **Fora do escopo do semestre:** histórico limitado a 6 meses, propostas em PDF e webhooks ([`contrato-api.md`](contrato-api.md), seção 10).
 
 Premissa de mix declarada, usada no ADR de tenancy: **45 tenants em 12 meses, 80% no Individual e 20% no Equipe**, resultando em R$ 4.005/mês de receita recorrente. A faixa projetada é de 30 a 50 tenants; 45 é o ponto de trabalho.
 

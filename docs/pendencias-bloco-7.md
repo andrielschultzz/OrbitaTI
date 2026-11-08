@@ -4,6 +4,49 @@
 **Por que este arquivo existe:** a Etapa 2 venceu em 15/10, então o código vem primeiro. As correções de
 documentação e o ADR-004 ficam para o Bloco 7, e este arquivo garante que nada se perca até lá.
 
+> **Status: resolvido no Bloco 7 (08/11/2026).** As seções 1 a 9 ficam como **histórico** (o que se sabia em
+> cada data). A tabela abaixo diz onde cada item foi parar. O que continua aberto é código, não documento, e
+> está no fim da tabela.
+
+| Item | Resolvido em |
+|---|---|
+| D1, D4 | Este bloco; [ADR-004](adr/adr-004-comunicacao-entre-servicos.md) |
+| D2 (100 / 5.000 linhas, sem intervalo de 5 min) | [ADR-003](adr/adr-003-processamento-assincrono.md) (nota de revisão e tabela de números), ADR-004 (conta das 5.000 linhas e tempos de importação), [`01-visao-produto.md`](01-visao-produto.md) (modelo comercial), `CLAUDE.md` (`concurrency: 2` na tabela de números) |
+| D3 (e-mail opcional no cadastro, obrigatório na importação) | `01-visao-produto.md` (decisões de escopo) |
+| C1 (worker grava pela API) | ADR-004; ADR-003; [`02-arquitetura-c4.md`](02-arquitetura-c4.md#estado-na-etapa-2); revisão de 08/11 em [`registro-enc11-cristofer.md`](registro-enc11-cristofer.md) |
+| C2 (CSV no payload, sem S3) | ADR-004 (com as duas contas de memória do Redis); ADR-003; C4; registros do Encontro 11 |
+| C3 (`NULLIF` na política) | [ADR-001](adr/adr-001-tenancy.md); C4 (tabela das 3 camadas); [`atributos.md`](atributos.md#cq-02); registro do Encontro 11 |
+| C4 (`set_config` em vez de `SET LOCAL`) | ADR-001; [ADR-002](adr/adr-002-identidade-tenant.md); ADR-003; C4 (tabela e diagramas); `atributos.md` |
+| C5 (exceção do `orbita_auth`) | ADR-002 ("A exceção única: o login") e ADR-001 |
+| C6 (limite por importação) | ADR-003, ADR-004, `01-visao-produto.md` |
+| C7 (rate limits, com a conta) | ADR-003, seção "Rate limit por tenant" |
+| C8 (progresso em `orbita.importacoes`) | ADR-004; registro do Encontro 11 |
+| C9 (e-mail obrigatório só na importação) | `01-visao-produto.md`, ADR-004 |
+| C10 (detalhes menores) | Nome completo em todos os docs revisados; README mantém **EC6** (correto, corrigido em 26/09) e `01-visao-produto.md` passou de EC7 para EC6. `atividades/enc06-andriel.md` **não foi alterado**: é uma atividade datada |
+| C11 (resposta do 404 cruzado) | `atributos.md`, CQ-02 |
+| C12 (sem refresh token e sem denylist) | ADR-002, revisão de 08/11/2026, com gatilhos de revisão |
+| Seção 3, "Importações simultâneas" | ADR-003 e ADR-004: contadas no banco, 429 `IMPORTACOES_SIMULTANEAS` |
+| Seção 3, "Store do rate limit" | ADR-003 |
+| Seção 3, "`docs/desenho-servicos.jpg`" | **Fechada.** A foto não foi preservada; as referências foram trocadas por uma nota nos dois registros do Encontro 11 e no `servicos-rascunho.md`. O diagrama digitado é a versão do desenho |
+| Seção 3, "Escopo" (exportação e exclusão em 30 dias) | [`lgpd.md`](lgpd.md): remarcados para o bloco 14 (Etapa 4), com o esboço do DPA |
+| Seção 4 (K1 a K6) e seção 11 do contrato | ADR-004, "Decisões do contrato HTTP" |
+| B1 (cascade não chega a `importacao`) | `lgpd.md` ("Excluir"); implementação no bloco 14 |
+| B2 a B6 | Já documentados no código e no README nos blocos 1 e 2; sem mudança de doc da Etapa 1 |
+| P2 | Já estava no contrato; citado no ADR-004 |
+| P3 | ADR-003 ("Onde fica o contador") |
+| P4, P7, P8 | `atributos.md` (CQ-01, CQ-04 e CQ-05) |
+| P6, P9 | Ver C11 e C12 |
+| I1 e o "faxineiro" | ADR-004, "Riscos aceitos", junto com o Redis sem persistência (mesmo efeito, mesma mitigação) |
+| I2 a I7 | ADR-004, "Decisões do contrato HTTP" |
+| I8 | ADR-004, "Achado I8" |
+| I9 | `lgpd.md` ("Excluir"); implementação no bloco 14 |
+| I10 | `CLAUDE.md`, tabela de números |
+| J1 a J3 | ADR-003 ("Rate limit por tenant") |
+| J4 a J6, J8, K2 do bloco 6 | ADR-004, "Borda: Nginx → API" |
+| J10 | ADR-004: decisão registrada, implementação pendente (P-3) |
+| J12 | [`contrato-api.md`](contrato-api.md), seção 1 (versão 1.3) |
+| **Continua aberto (código)** | ADR-004, "Pendências de código abertas por este ADR": **P-1** `maxmemory` + `noeviction` no Redis do kind; **P-2** faxineiro; **P-3** histórico de execução (J10) |
+
 ---
 
 ## 1. Decisões tomadas em 29/10/2026
@@ -55,7 +98,7 @@ documentação e o ADR-004 ficam para o Bloco 7, e este arquivo garante que nada
 - ~~Refresh token de 7 dias e denylist em Redis (ADR-002)~~: **decidido** (decisão 9, fora do escopo do semestre). Falta escrever no ADR-002, ver C12.
 - **Escopo:** exportação CSV/JSON e job de exclusão em 30 dias (`lgpd.md` marca estes dois para a Etapa 2).
 - ~~Log de auditoria do 404 (CQ-02)~~: **resolvido no bloco 3** (decisão 6). Falta só o texto do `atributos.md`, ver C11.
-- **`docs/desenho-servicos.jpg`:** citado em três documentos, mas o arquivo não existe no repositório.
+- ~~`docs/desenho-servicos.jpg`~~: **fechada no Bloco 7** (08/11/2026). A foto não foi preservada; as referências viraram uma nota dizendo que o diagrama digitado é a versão do desenho.
 
 ---
 

@@ -4,9 +4,10 @@
 |---|---|
 | **Status** | Aceito |
 | **Data** | 2026-09-24 |
-| **Decisores** | Andriel Schultz, Cristofer |
+| **Decisores** | Andriel Schultz, Cristofer Mateus Rutzen |
 | **Rascunho original** | 27/08/2026, revisado com números em 24/09/2026 |
 | **Substitui** | — |
+| **Revisão** | 08/11/2026 (Bloco 7): SQL corrigido para o que o código usa (`NULLIF` e `set_config`). A decisão não mudou |
 
 ---
 
@@ -97,24 +98,37 @@ Entre pool e schema-per-tenant, que empatam em custo, decidimos por pool porque 
 Três camadas, detalhadas em [`../02-arquitetura-c4.md`](../02-arquitetura-c4.md):
 
 ```sql
--- 1. Toda tabela com dado de tenant carrega a coluna e a política
-ALTER TABLE contatos ENABLE ROW LEVEL SECURITY;
-ALTER TABLE contatos FORCE ROW LEVEL SECURITY;
+-- 1. Toda tabela com dado de tenant carrega a coluna, o DEFAULT e a política
+--    (trecho de db/migrations/001_base.sql)
+CREATE TABLE orbita.contatos (
+  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id  uuid NOT NULL DEFAULT NULLIF(current_setting('app.tenant_id', true), '')::uuid,
+  -- ... demais colunas
+);
 
-CREATE POLICY tenant_isolamento ON contatos
-  USING (tenant_id = current_setting('app.tenant_id')::uuid)
-  WITH CHECK (tenant_id = current_setting('app.tenant_id')::uuid);
+ALTER TABLE orbita.contatos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE orbita.contatos FORCE ROW LEVEL SECURITY;
 
--- 2. A camada de acesso a dados abre toda transação fixando o tenant
+CREATE POLICY isolamento_tenant ON orbita.contatos
+  USING      (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
+
+-- 2. A camada de acesso a dados (withTenant) abre toda transação fixando o tenant
 BEGIN;
-SET LOCAL app.tenant_id = '...';  -- vem do JWT, nunca do cliente
-SELECT * FROM contatos;            -- devolve só o tenant da sessão
+SELECT set_config('app.tenant_id', $1, true);  -- $1 vem do JWT, nunca do cliente
+SELECT * FROM orbita.contatos;                  -- devolve só o tenant da sessão
 COMMIT;
 ```
 
 O `FORCE ROW LEVEL SECURITY` é deliberado: sem ele, o dono da tabela ignora a política. Com ele, nem a conta da aplicação escapa.
 
-O `SET LOCAL` — e não `SET` — também é deliberado: o valor morre no fim da transação e não vaza para a próxima requisição que reutilizar a mesma conexão do pool.
+**Por que `current_setting('app.tenant_id', true)` com `NULLIF`.** O segundo argumento `true` faz a função devolver nulo em vez de dar erro quando a variável nunca foi definida. Numa conexão do pool que já foi usada, o valor volta como texto vazio `''` depois do fim da transação, e `''::uuid` dá erro. O `NULLIF(..., '')` transforma o vazio em nulo, e `tenant_id = NULL` não é verdadeiro para nenhuma linha. Resultado: **sessão sem tenant devolve 0 linhas, sem erro** (T-RLS-02, T-RLS-03). A versão original deste ADR, sem `true` e sem `NULLIF`, dava erro nesse caso em vez de devolver vazio.
+
+**Por que `set_config(..., true)` e não `SET LOCAL`.** O terceiro argumento `true` faz o valor valer só até o fim da transação, exatamente como o `SET LOCAL`: ele não vaza para a próxima requisição que reutilizar a mesma conexão do pool. A diferença é que o `SET LOCAL` **não aceita parâmetro** (`$1`): o valor teria de ser concatenado no texto do SQL, que é a porta de entrada para SQL injection. O `set_config` é uma função comum e recebe o tenant como parâmetro.
+
+**Por que o `DEFAULT`.** O código nunca informa o `tenant_id` num INSERT: o banco preenche com o tenant da sessão (T-RLS-13). Um INSERT com o `tenant_id` de outro tenant é barrado pelo `WITH CHECK` (T-RLS-04).
+
+**A exceção única do login.** Para fazer login, a API ainda não sabe o tenant. A busca da credencial passa pela função `orbita.buscar_credencial`, cujo dono é o papel `orbita_auth` (com `BYPASSRLS` e sem login). Nenhum papel de aplicação tem `BYPASSRLS` (T-RLS-14). Detalhes em [`adr-002-identidade-tenant.md`](adr-002-identidade-tenant.md).
 
 ## Consequências
 
@@ -124,9 +138,9 @@ O custo de banco por tenant cai para R$ 2,67/mês e a margem bruta fica em 97%, 
 
 ### Negativas
 
-**Toda query depende do `tenant_id` estar fixado na sessão.** Um endpoint novo que abra conexão por fora da camada de acesso a dados roda sem tenant definido. O RLS faz a coisa certa nesse caso — não devolve nenhuma linha — mas o sintoma é uma tela vazia, não um erro claro, o que torna o bug chato de diagnosticar. *Mitigação:* ponto único de acesso ao banco, teste automatizado de isolamento em toda rota (CQ-02), e revisão obrigatória de qualquer PR que abra conexão.
+**Toda query depende do `tenant_id` estar fixado na sessão.** Um endpoint novo que abra conexão por fora da camada de acesso a dados roda sem tenant definido. O RLS faz a coisa certa nesse caso — com o `NULLIF`, não devolve nenhuma linha e não dá erro (T-RLS-02) — mas o sintoma é uma tela vazia, não um erro claro, o que torna o bug chato de diagnosticar. *Mitigação:* ponto único de acesso ao banco (`withTenant`), teste automatizado de isolamento em toda rota (CQ-02), e revisão obrigatória de qualquer PR que abra conexão.
 
-**O vizinho barulhento é real.** Tenants disputam CPU, memória e conexões do mesmo PostgreSQL. *Mitigação:* fila com lote e quota ([`adr-003`](adr-003-processamento-assincrono.md)), medida pelo cenário CQ-01.
+**O vizinho barulhento é real.** Tenants disputam CPU, memória e conexões do mesmo PostgreSQL. *Mitigação:* fila com lote e quota ([`adr-003`](adr-003-processamento-assincrono.md), revisado pelo [`adr-004`](adr-004-comunicacao-entre-servicos.md)), medida pelo cenário CQ-01.
 
 **Não conseguimos atender cliente que exija banco dedicado por contrato.** Se aparecer no funil, a resposta é "não" — e a alternativa é o mesmo modelo com criptografia e retenção diferenciadas, não um silo. Abrir exceção para um cliente cria um segundo produto para manter. *Revisão:* se a demanda por isolamento físico aparecer em 3 ou mais oportunidades qualificadas, este ADR volta à mesa.
 

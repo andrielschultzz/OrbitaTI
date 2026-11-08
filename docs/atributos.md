@@ -1,6 +1,6 @@
 # 1.4 — Atributos de Qualidade: cenários mensuráveis
 
-**Unidade:** Andriel Schultz e Cristofer
+**Unidade:** Andriel Schultz e Cristofer Mateus Rutzen
 **Etapa 1 — Proposta de arquitetura**
 
 Cinco cenários no formato estímulo → resposta. Cada número traz a conta que o produziu; nenhum foi arbitrado. As personas e volumes citados vêm de [`01-visao-produto.md`](01-visao-produto.md).
@@ -43,11 +43,23 @@ O p100 de 2 s existe porque p95 sozinho esconde cauda: 5% de 40 mil requisiçõe
 
 ### Como é atingido
 
-Pela decisão registrada em [`adr/adr-003-processamento-assincrono.md`](adr/adr-003-processamento-assincrono.md): lotes de 100 registros com pausa de 500 ms entre eles, no máximo 2 jobs simultâneos por tenant no plano Individual e 5 no Equipe. A importação vira uma sequência de rajadas curtas com o banco livre no intervalo, em vez de um bloqueio contínuo.
+Pelas decisões registradas em [`adr/adr-003-processamento-assincrono.md`](adr/adr-003-processamento-assincrono.md) e [`adr/adr-004-comunicacao-entre-servicos.md`](adr/adr-004-comunicacao-entre-servicos.md). Valem juntos:
+
+- **Lote e pausa:** lotes de 100 registros com pausa de 500 ms entre eles.
+- **`concurrency: 2` no worker:** no máximo 2 importações tocam o banco ao mesmo tempo, somando todos os tenants.
+- **Limite por tenant:** no máximo 2 importações simultâneas no plano Individual e 5 no Equipe, contadas no banco.
+- **Rate limit:** 60 requisições por minuto por usuário do plano.
+
+A importação vira uma sequência de rajadas curtas com o banco livre no intervalo, em vez de um bloqueio contínuo. O intervalo de 5 min entre jobs da versão original do ADR-003 foi retirado (nota de revisão do ADR-003).
 
 ### Como é verificado
 
 Teste de carga antes de cada entrega de etapa: um tenant sintético importa 500 contatos enquanto 10 tenants virtuais executam busca a cada 3 segundos. Coleta-se o histograma de latência dos 10 tenants observadores. **Falha se o p95 passar de 800 ms.**
+
+**Como a medida é feita na prática** (decisão P4, 08/11/2026; o script k6 do bloco 9 fica em `tests/carga/`, ainda não criado):
+
+- **Medida nas janelas de importação:** o p95 que aprova ou reprova é o das buscas feitas **durante** as importações, separado do p95 geral do teste. Misturar as buscas de antes e de depois diluiria o efeito do vizinho barulhento.
+- **Importações de 5.000 linhas:** o tenant barulhento faz 3 importações de 5.000 linhas cada (plano Equipe), com linhas curtas, para que a janela tenha ≈ 200 buscas em vez de 20 a 50.
 
 ---
 
@@ -62,7 +74,7 @@ Teste de carga antes de cada entrega de etapa: um tenant sintético importa 500 
 | Estímulo | Requisição a um recurso cujo `tenant_id` é de outro tenant |
 | Artefato | API REST, Resolvedor de Tenant e política de RLS no PostgreSQL |
 | Ambiente | Operação normal e também durante deploy |
-| Resposta | 404 Not Found, corpo vazio, evento registrado no log de auditoria |
+| Resposta | 404 com o mesmo corpo de um recurso inexistente (`{"erro": ..., "codigo": "NAO_ENCONTRADO"}`); evento `recurso_nao_encontrado` no log da aplicação, com `tenant_id`, método, rota e id (T-ISO-19) |
 | **Medida** | **100% das tentativas bloqueadas; 100% das rotas cobertas; build falha se a suíte falhar** |
 
 ### Por que 100% e não 99,9%
@@ -72,6 +84,8 @@ Isolamento é o único atributo deste documento que não admite percentil. Um va
 ### Por que 404 e não 403
 
 `403 Forbidden` confirma que o recurso existe e que o usuário não tem acesso. Essa confirmação já é vazamento: permite enumerar identificadores e descobrir o tamanho da base de um concorrente. `404` é indistinguível de "nunca existiu".
+
+**Por que o evento vai para todo 404, e não só para o cruzado** (decisão 6, bloco 3). Com RLS, a API não sabe distinguir "de outro tenant" de "inexistente": nos dois casos a consulta devolve 0 linhas. Por isso **todo** 404 em rota com `:id` gera o evento `recurso_nao_encontrado` no log da aplicação (pino). Não existe um log de auditoria separado. Uma sequência desses eventos vinda do mesmo tenant é o sinal de alguém tentando adivinhar ids.
 
 ### Dimensionamento da suíte
 
@@ -86,7 +100,7 @@ Um teste adicional varre a definição das rotas e falha se algum parâmetro cha
 
 ### Como é atingido
 
-Três camadas sobrepostas, detalhadas em [`02-arquitetura-c4.md`](02-arquitetura-c4.md): `tenant_id` no JWT assinado, `SET LOCAL app.tenant_id` em toda transação, e política de RLS com `FORCE ROW LEVEL SECURITY` em toda tabela. A terceira camada é a que não depende de o desenvolvedor lembrar de nada.
+Três camadas sobrepostas, detalhadas em [`02-arquitetura-c4.md`](02-arquitetura-c4.md): `tenant_id` no JWT assinado, `set_config('app.tenant_id', $1, true)` em toda transação (via `withTenant`), e política de RLS com `FORCE ROW LEVEL SECURITY` em toda tabela. A terceira camada é a que não depende de o desenvolvedor lembrar de nada.
 
 ---
 
@@ -165,7 +179,13 @@ Fora do horário comercial não há compromisso de disponibilidade — é quando
 
 ### Como é verificado
 
-Sonda externa a cada 60 s contra um endpoint de saúde que toca o banco, com apuração mensal só da janela comercial. Painel público de disponibilidade a partir da Etapa 3.
+Sonda externa a cada 60 s contra um endpoint de saúde que toca o banco, com apuração mensal só da janela comercial. Painel público de disponibilidade a partir da Etapa 3. Essa é a medida de **produção**.
+
+**Ensaio local** (decisão P7, 08/11/2026; bloco 11): sonda a cada **15 s durante 60 min = 240 amostras** (60 × 60 ÷ 15).
+
+- **Critério:** 1 falha = 1 ÷ 240 = 0,42%, abaixo de 0,5%. Então 1 falha aprova e 2 reprovam.
+- **Por que 15 s:** com 60 s, uma hora de ensaio daria só 60 amostras, e uma única falha já seria 1,7%.
+- **Limite declarado:** 0 falhas em 240 amostras não provam 99,5%. Com 95% de confiança, o máximo que se pode afirmar é uma taxa de falha abaixo de 3 ÷ 240 = 1,25% (regra dos três). O número de verdade vem da sonda de um mês em produção.
 
 ---
 
@@ -216,13 +236,15 @@ Restaurar um tenant específico é mais trabalhoso em pool do que em silo — ex
 
 Ensaio trimestral de restauração completa em ambiente separado, cronometrado, com o resultado registrado em `docs/ensaios/`. **Falha se o RTO medido passar de 4 h ou se a verificação de integridade apontar divergência.**
 
+**Limitação do ensaio local** (decisão P8, 08/11/2026): o RPO de 15 min depende de arquivamento contínuo de WAL, que é recurso do banco gerenciado em produção. O ensaio local prova o procedimento de restauração e o RTO; **o RPO é garantido pelo provedor do banco gerenciado e não é ensaiado localmente**.
+
 ---
 
 ## Rastreabilidade
 
 | Cenário | Decisão que o sustenta | Container responsável |
 |---|---|---|
-| CQ-01 | [ADR-003](adr/adr-003-processamento-assincrono.md) — fila, lote e quota | Fila de Trabalhos, Worker de Importação |
+| CQ-01 | [ADR-003](adr/adr-003-processamento-assincrono.md) — fila, lote e quota; [ADR-004](adr/adr-004-comunicacao-entre-servicos.md) — `concurrency: 2` e importações simultâneas | Fila de Trabalhos, Worker de Importação |
 | CQ-02 | [ADR-001](adr/adr-001-tenancy.md) + [ADR-002](adr/adr-002-identidade-tenant.md) | Resolvedor de Tenant, PostgreSQL com RLS |
 | CQ-03 | [ADR-001](adr/adr-001-tenancy.md) — pool torna o onboarding um INSERT | API REST, Serviço de Notificações |
 | CQ-04 | [ADR-001](adr/adr-001-tenancy.md) — instância única sustenta o custo | Portal Web, API REST, PostgreSQL |
