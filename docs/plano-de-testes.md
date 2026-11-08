@@ -169,7 +169,7 @@ valer quando as 12 rotas do C4 existirem. O T-ISO-15 garante que nenhuma rota no
 | T-IMP-11 | Token de serviço com claim errado ou vencido | Regra 7 | — | Tokens com `aud` ≠ `api-contatos`; `iss` ≠ `importacao`; `exp` no passado; assinado com `JWT_SEGREDO` | 401 nos quatro | Integração | Vitest | 4 | automatizado |
 | T-IMP-12 | Progresso e transições de status | Bloco 4, item 3 | — | Consultar `GET /importacoes/:id` durante uma importação de equipe | `na_fila` → `processando` → `concluida`; no fim `lotes_aplicados = total_lotes` | Integração | Vitest | 4 | automatizado |
 | T-IMP-13 | A pausa de 500 ms existe de verdade | ADR-003; CQ-01 | `IMPORT_PAUSA_MS=500` | Importar 5.000 linhas (50 lotes) e medir `concluida_em − criado_em` | ≥ 24,5 s (49 pausas entre 50 lotes × 0,5 s). Teste lento: marcar para rodar só no CI e antes de entrega | Integração | Vitest | 4 | automatizado (só com `TESTES_LENTOS=1`) |
-| T-IMP-14 | Job reprocessado não duplica contatos | Regra 8 (`jobId`, lotes, upsert) | importação de 5.000 linhas em andamento | `docker compose kill importacao` no meio; `docker compose up -d importacao` | `concluida`; exatamente 5.000 contatos; `lotes_aplicados = 50` | Ensaio operacional | PowerShell | 5 | planejado |
+| T-IMP-14 | Job reprocessado não duplica contatos | Regra 8 (`jobId`, lotes, upsert) | importação de 5.000 linhas em andamento | `docker compose kill importacao` no meio; `docker compose up -d importacao` | `concluida`; exatamente 5.000 contatos; `lotes_aplicados = 50` | Ensaio operacional | PowerShell | 5 | ensaio executado em 08/11/2026 (`scripts/ensaio-reprocessamento.ps1`) |
 | T-IMP-15 | CSV todo inválido conclui na hora | Contrato, seção 8 (`inicio`) | importação `na_fila` criada no banco | Token de serviço: `inicio {total_lotes: 0, linhas_invalidas: 4}` | `{status:"concluida"}`; `total_lotes = 0`, `concluida_em` preenchido | Integração | Vitest | 4 | automatizado |
 | T-IMP-16 | `inicio` repetido não muda nada | Contrato, seção 8 (retry do BullMQ) | idem | `inicio {1, 3}` e depois `inicio {9, 0}` | Continua `total_lotes = 1`, `linhas_invalidas = 3`: vale o primeiro | Integração | Vitest | 4 | automatizado |
 | T-IMP-17 | `falhou` não volta atrás | Contrato, seção 8 | importação `processando` | `falha`; depois um lote e um `inicio` | `{status:"falhou"}`; lote → `{aplicado:false}` e nenhum contato gravado; `inicio` → `{status:"falhou"}` | Integração | Vitest | 4 | automatizado |
@@ -186,30 +186,32 @@ casos são **ensaios** executados pelo script, com o resultado registrado.
 
 | ID | O que verifica | Origem | Pré-condição | Passos | Resultado esperado | Tipo | Ferramenta | Bloco | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| T-RES-01 | Importação fora não derruba o CRM | ADR-003; CLAUDE.md (observabilidade) | stack no ar | `docker compose stop importacao`; login, busca, `POST /contatos` | Todos 2xx | Ensaio operacional | PowerShell | 5 | planejado |
-| T-RES-02 | Importação enviada com o worker fora espera e conclui | ADR-003 | T-RES-01 | `POST /importacoes` → `docker compose start importacao` | 202 e `na_fila`; depois `concluida` | Ensaio operacional | PowerShell | 5 | planejado |
-| T-RES-03 | Redis fora → 503 rápido | CLAUDE.md (`enableOfflineQueue: false`) | stack no ar | `docker compose stop redis`; `POST /importacoes` cronometrado | 503 com a mensagem "Importação indisponível no momento..." em **< 2 s**; nenhum registro órfão em `orbita.importacoes` | Ensaio operacional | PowerShell | 5 | planejado |
-| T-RES-04 | Redis fora não derruba o resto | CLAUDE.md | T-RES-03 | Login, busca, CRUD de contatos e `GET /saude` | 2xx; `/saude` → HTTP 200 com `{db:"ok", fila:"fora"}`. Nenhum 500 vindo do rate limit: com `skipOnError: true`, ele é ignorado enquanto o Redis está fora (decisão 3) | Ensaio operacional | PowerShell | 5 | planejado |
-| T-RES-05 | Redis volta sem reiniciar a API | ADR-003 | T-RES-03 | `docker compose start redis`; `POST /importacoes` | 202, sem reiniciar a `api-contatos` | Ensaio operacional | PowerShell | 5 | planejado |
+| T-RES-01 | Importação fora não derruba o CRM | ADR-003; CLAUDE.md (observabilidade) | stack no ar | `docker compose stop importacao`; login, busca, `POST /contatos` | Todos 2xx | Ensaio operacional | PowerShell | 5 | ensaio executado em 08/11/2026 |
+| T-RES-02 | Importação enviada com o worker fora espera e conclui | ADR-003 | T-RES-01 | `POST /importacoes` → `docker compose start importacao` | 202 e `na_fila`; depois `concluida` | Ensaio operacional | PowerShell | 5 | ensaio executado em 08/11/2026 |
+| T-RES-03 | Redis fora → 503 rápido | CLAUDE.md (`enableOfflineQueue: false`) | stack no ar | `docker compose stop redis`; `POST /importacoes` cronometrado | 503 com a mensagem "Importação indisponível no momento..." em **< 2 s**; nenhum registro órfão em `orbita.importacoes` | Ensaio operacional | PowerShell | 5 | ensaio executado em 08/11/2026 (503 em 80 ms) |
+| T-RES-04 | Redis fora não derruba o resto | CLAUDE.md | T-RES-03 | Login, busca, CRUD de contatos e `GET /saude` | 2xx; `/saude` → HTTP 200 com `{db:"ok", fila:"fora"}`. Nenhum 500 vindo do rate limit: com `skipOnError: true`, ele é ignorado enquanto o Redis está fora (decisão 3) | Ensaio operacional | PowerShell | 5 | ensaio executado em 08/11/2026 |
+| T-RES-05 | Redis volta sem reiniciar a API | ADR-003 | T-RES-03 | `docker compose start redis`; `POST /importacoes` | 202, sem reiniciar a `api-contatos` | Ensaio operacional | PowerShell | 5 | ensaio executado em 08/11/2026 |
 | T-RES-06 | Cadastro funciona com a fila de e-mail fora | Bloco 10, item 3; CQ-03 | Redis parado | `POST /auth/cadastro` | 201; aviso no log; nenhum e-mail enviado | Ensaio operacional | PowerShell | 10 | planejado |
 
 ### 2.7 Rate limit por tenant — bloco 5, `tests/rate-limit.test.js`
 
 | ID | O que verifica | Origem | Pré-condição | Passos | Resultado esperado | Tipo | Ferramenta | Bloco | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| T-RL-01 | Um tenant estoura e o outro segue normal | ADR-003 (vizinho barulhento); números do projeto | tenants individuais A e B | A faz 61 `GET /contatos` em menos de 1 min; logo depois B faz 1 | A: 60 × 200 e a 61ª → 429 com `Retry-After`; B → 200 | Integração | Vitest | 5 | planejado |
-| T-RL-02 | Limite calculado pelo plano | `planos.js` | — | Ler o limite de cada plano | Individual 60 × 1 = 60; equipe 60 × 10 = 600 req/min | Unitário | Vitest | 5 | planejado |
-| T-RL-03 | Força bruta no login | Números do projeto | usuário de A | 11 logins com o mesmo IP + e-mail; depois 1 com outro e-mail | 11ª → 429, mesmo com a senha certa; o outro e-mail → resposta normal (a chave é IP + e-mail) | Integração | Vitest | 5 | planejado |
-| T-RL-04 | Limite de cadastro por IP | Números do projeto | `buildApp()` com limite reduzido (3) | 4 cadastros seguidos com `app.inject()` | 4º → 429. Unitário para não bloquear o IP da suíte por 1 min | Unitário | Vitest | 5 | planejado |
-| T-RL-05 | `/saude`, `/planos` e `/interno` ficam fora do limite | Bloco 5, item 2 | — | 70 `GET /saude` e 70 `GET /planos` em menos de 1 min | Nenhum 429 | Integração | Vitest | 5 | planejado |
+| T-RL-01 | Um tenant estoura e o outro segue normal | ADR-003 (vizinho barulhento); números do projeto | tenants individuais A e B | A faz 61 `GET /contatos` em menos de 1 min; logo depois B faz 1 | A: 60 × 200 e a 61ª → 429 com `Retry-After`; B → 200 | Integração | Vitest | 5 | automatizado |
+| T-RL-02 | Limite calculado pelo plano | `planos.js` | — | Ler o limite de cada plano | Individual 60 × 1 = 60; equipe 60 × 10 = 600 req/min | Unitário | Vitest | 5 | automatizado (`services/api-contatos/test/limite.test.js`) |
+| T-RL-03 | Força bruta no login | Números do projeto | usuário de A | 11 logins com o mesmo IP + e-mail; depois 1 com outro e-mail | 11ª → 429, mesmo com a senha certa; o outro e-mail → resposta normal (a chave é IP + e-mail) | Integração | Vitest | 5 | automatizado |
+| T-RL-04 | Limite de cadastro por IP | Números do projeto | `buildApp()` com limite reduzido (3) | 4 cadastros seguidos com `app.inject()` | 4º → 429. Unitário para não bloquear o IP da suíte por 1 min | Unitário | Vitest | 5 | automatizado (`services/api-contatos/test/limite.test.js`) |
+| T-RL-05 | `/saude`, `/planos` e `/interno` ficam fora do limite | Bloco 5, item 2 | — | 70 `GET /saude` e 70 `GET /planos` em menos de 1 min | Nenhum 429. O `/interno` (precisa de token de serviço) é conferido pelo T-RL-07 | Integração | Vitest | 5 | automatizado |
+| T-RL-06 | `trustProxy`: cada IP atrás do proxy tem o seu contador | Bloco 5, item 5; decisão do bloco 5 (`pendencias-bloco-7.md`, seção 8) | conta de A | **Integração:** 10 logins errados com `X-Forwarded-For: 198.51.100.1`, mais 1 com o mesmo IP e 1 com `198.51.100.2`. **Unitário** (`inject` com `remoteAddress`): conexão de `172.18.0.5` (rede interna) e de `203.0.113.5` (pública), com `X-Forwarded-For`; e `TRUST_PROXY_SALTOS=0` | Integração: 11ª do IP 1 → 429; IP 2 → 401 (contador próprio). Unitário: de rede interna, o `req.ip` vem do header (só o último endereço); de IP público, o header é ignorado (`req.ip = 203.0.113.5`); com 0 saltos, ignorado sempre | Integração e unitário | Vitest | 5 | automatizado (`tests/rate-limit.test.js` e `services/api-contatos/test/limite.test.js`) |
+| T-RL-07 | Só `/saude`, `/planos` e `/interno` ficam sem limite | Bloco 5, item 2 | — | `buildApp()` e hook `onRoute`: conferir `config.rateLimit` de cada rota | `rateLimit: false` só nas três; toda rota pública fora delas tem limite **próprio** (o padrão usa o tenant, que ela não tem). Protege as rotas futuras, como o T-ISO-13 | Unitário | Vitest | 5 | automatizado (`services/api-contatos/test/limite.test.js`) |
 
 ### 2.8 Observabilidade — bloco 5
 
 | ID | O que verifica | Origem | Pré-condição | Passos | Resultado esperado | Tipo | Ferramenta | Bloco | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| T-OBS-01 | `x-request-id` aceito ou gerado | CLAUDE.md (observabilidade) | — | Requisição com `x-request-id: demo-123`; outra sem o header | 1ª devolve `demo-123`; 2ª devolve um UUID | Integração | Vitest | 5 | planejado |
+| T-OBS-01 | `x-request-id` aceito ou gerado | CLAUDE.md (observabilidade) | — | Requisição com `x-request-id: demo-123`; outra sem o header | 1ª devolve `demo-123`; 2ª devolve um UUID | Integração | Vitest | 5 | automatizado (`tests/observabilidade.test.js`) |
 | T-OBS-03 | Status HTTP do `/saude` nas 4 combinações (decisão 2) | CLAUDE.md (observabilidade); contrato, `GET /saude` | — | `buildApp()` com banco e fila **simulados** (ok ou fora) e `inject` em `GET /saude`, em `services/api-contatos/test/saude.test.js` | db ok + fila ok → 200 `{db:"ok",fila:"ok"}`; db ok + fila fora → **200** `{db:"ok",fila:"fora"}`; db fora → **503** (com a fila ok ou fora). Só o banco decide o 503: a `readinessProbe` do kind não tira a API do ar quando só o Redis cai. O caso real (Redis parado de verdade) é o T-RES-04 | Unitário | Vitest | 4 | automatizado |
-| T-OBS-02 | O id atravessa a fila | CLAUDE.md | — | Importação com `x-request-id: demo-123`; `docker compose logs \| Select-String demo-123` | Linhas da `api-contatos` **e** da `importacao` com `demo-123`, `reqId` e `tenant_id` | Ensaio operacional | PowerShell | 5 | planejado |
+| T-OBS-02 | O id atravessa a fila | CLAUDE.md | — | Importação com `x-request-id: demo-123`; `docker compose logs \| Select-String demo-123` | Linhas da `api-contatos` **e** da `importacao` com `demo-123`, `reqId` e `tenant_id` | Ensaio operacional | PowerShell | 5 | ensaio executado em 08/11/2026 |
 
 ### 2.9 Cenários de qualidade CQ-01, CQ-03, CQ-04 e CQ-05
 
@@ -290,7 +292,7 @@ se falhar, o relatório diz que falhou e propõe a causa (regra do bloco 9).
 | 100 / 5.000 linhas e 1 MB | T-IMP-05, T-IMP-06, T-IMP-07 |
 | 2 / 5 importações simultâneas | T-IMP-08 |
 | Rate limit 60 / 600 | T-RL-01, T-RL-02 |
-| Login 10/min por IP + e-mail | T-RL-03 |
+| Login 10/min por IP + e-mail | T-RL-03, T-RL-06 (IP real atrás do proxy) |
 | Cadastro `LIMITE_CADASTRO_POR_MIN` | T-RL-04 |
 | Token de 15 min | T-AUTH-07 |
 | Token de serviço de 60 s | T-IMP-11 |
@@ -318,7 +320,7 @@ Situação de cada lacuna:
 
 Casos que **este plano acrescenta** e que não estão nos prompts dos blocos (combinar antes de automatizar):
 T-RLS-06 (DELETE cruzado), T-RLS-13 a 17, T-ISO-05, 06, 07, 12, 15, T-AUTH-03, 07, 08, T-CON-02 a 04,
-T-IMP-03 a 08, 11 a 14, T-RL-02 a 05, T-OBS-01, T-CQ04-02, T-PROD-03, T-LGPD-01.
+T-IMP-03 a 08, 11 a 14, T-RL-02 a 07, T-OBS-01, T-CQ04-02, T-PROD-03, T-LGPD-01 (T-RL-06 e 07 combinados no plano do bloco 5).
 T-WEB-02 a T-WEB-09 vieram do bloco 13 (Fases 4 e 5) e já estão automatizados contra o simulador do
 contrato; falta rodá-los contra a stack real (Fase 6, ver [`portal-pendencias.md`](portal-pendencias.md)).
 

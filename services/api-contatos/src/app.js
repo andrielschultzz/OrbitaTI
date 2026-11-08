@@ -4,14 +4,17 @@
 // Ordem do que acontece numa requisição:
 //   onRequest (autenticacao.js)  token válido? senão 401, antes mesmo de ler o corpo
 //   validação (JSON Schema)      corpo/query fora do schema -> 400; :id que não é UUID -> 404
+//   preHandler (limite.js)       rate limit por tenant, login ou cadastro -> 429 LIMITE_REQUISICOES
 //   rota                         só fala com o banco via withTenant (regra 2)
 //   setErrorHandler              tudo vira {erro, codigo} (contrato, seção 2), sem stack trace
 import { randomUUID } from 'node:crypto';
+import proxyAddr from '@fastify/proxy-addr';
 import Fastify from 'fastify';
 import autenticacao from './autenticacao.js';
 import { criarPool } from './db.js';
 import { ErroContrato, MENSAGENS, camposDaValidacao } from './erros.js';
 import { criarFila } from './fila.js';
+import { CADASTRO_POR_MINUTO_PADRAO, criarRedisDoLimite, registrarLimite } from './limite.js';
 import rotasAuth from './rotas/auth.js';
 import rotasContatos from './rotas/contatos.js';
 import rotasImportacoes from './rotas/importacoes.js';
@@ -23,6 +26,35 @@ import rotasSaude from './rotas/saude.js';
 // valor com quebra de linha ou gigante poderia forjar ou poluir linhas de log.
 const REQUEST_ID_VALIDO = /^[A-Za-z0-9._-]{1,128}$/;
 
+/** Inteiro de opção ou do ambiente, dentro de [min, max]. Valor fora disso impede a API de subir. */
+function inteiro(nome, valor, padrao, min, max) {
+  const n = Number(valor ?? padrao);
+  if (!Number.isInteger(n) || n < min || n > max) throw new Error(`${nome} precisa ser inteiro entre ${min} e ${max}.`);
+  return n;
+}
+
+// Rede interna: loopback (127/8, ::1), privadas (10/8, 172.16/12, 192.168/16, fc00::/7) e link-local.
+// É de onde o Nginx do Portal fala com a API (rede do compose ou do cluster).
+const redeInterna = proxyAddr.compile(['loopback', 'uniquelocal', 'linklocal']);
+
+/**
+ * Função de confiança do trustProxy: confia nos `saltos` proxies mais próximos, mas SÓ se o endereço de
+ * cada um for de rede interna.
+ *
+ * Por que não `trustProxy: saltos` (número): desde a 5.12.1 o Fastify ignora o número e não confia em
+ * ninguém (advisory GHSA-3m5p-2c4r-xxw2, CVE-2026-16732). Só a contagem não confere QUEM conectou: um
+ * cliente que alcançasse a API direto mandaria X-Forwarded-For com o IP que quisesse. Exigir rede interna
+ * fecha isso: se a API for exposta na internet por engano, o header de quem vem de fora é ignorado.
+ * O que sobra (quem já está na rede interna pode forjar) está em docs/pendencias-bloco-7.md.
+ *
+ * proxy-addr chama trust(endereço, i) do mais próximo (i = 0, quem abriu a conexão) para o mais distante.
+ * O primeiro endereço NÃO confiável vira o req.ip.
+ */
+export function confiarNoProxy(saltos) {
+  if (saltos === 0) return false; // ninguém na frente: o header é ignorado
+  return (endereco, i) => i < saltos && redeInterna(endereco, i);
+}
+
 /**
  * @param {object} [opcoes]
  * @param {string} [opcoes.jwtSegredo]  segredo HS256 dos tokens de usuário (padrão: env JWT_SEGREDO)
@@ -31,7 +63,10 @@ const REQUEST_ID_VALIDO = /^[A-Za-z0-9._-]{1,128}$/;
  * @param {string} [opcoes.databaseUrl]
  * @param {{enfileirar: Function, verificar: Function, fechar?: Function}} [opcoes.fila]  fila pronta
  *        (senão cria a do BullMQ com opcoes.redisUrl / env REDIS_URL). Os testes passam uma simulada.
- * @param {string} [opcoes.redisUrl]
+ * @param {string} [opcoes.redisUrl]  também guarda o rate limit (padrão: env REDIS_URL, obrigatório)
+ * @param {boolean} [opcoes.limiteEmMemoria]  SÓ TESTES: contador do rate limit em memória, sem Redis
+ * @param {number} [opcoes.limiteCadastroPorMin]  padrão: env LIMITE_CADASTRO_POR_MIN ou 60
+ * @param {number} [opcoes.trustProxySaltos]  proxies confiáveis na frente da API (padrão: env TRUST_PROXY_SALTOS ou 1)
  * @param {object|boolean} [opcoes.logger]
  */
 export function buildApp(opcoes = {}) {
@@ -49,7 +84,22 @@ export function buildApp(opcoes = {}) {
   }
   if (jwtServicoSegredo === jwtSegredo) throw new Error('JWT_SERVICO_SEGREDO precisa ser diferente de JWT_SEGREDO.');
 
+  // Sem Redis, a API NÃO sobe. Contar em memória "para não cair" parece seguro, mas com 2 réplicas no kind
+  // cada uma contaria separado e o limite dobraria sem ninguém perceber. Memória só quando o teste pede.
+  const redisUrl = opcoes.redisUrl ?? process.env.REDIS_URL;
+  if (!opcoes.limiteEmMemoria && !redisUrl) throw new Error('REDIS_URL não definido (fila e rate limit dependem dele).');
+  const limiteCadastroPorMin = inteiro(
+    'LIMITE_CADASTRO_POR_MIN', opcoes.limiteCadastroPorMin ?? process.env.LIMITE_CADASTRO_POR_MIN, CADASTRO_POR_MINUTO_PADRAO, 1, 100_000,
+  );
+  // Quantos proxies confiáveis existem na frente da API. Com 1 (o Nginx do Portal), o req.ip passa a ser o
+  // último endereço do X-Forwarded-For, que o Nginx escreve, e não o IP do próprio Nginx. Sem isso, os
+  // limites de login (IP + e-mail) e de cadastro (IP) valeriam para todos os usuários juntos.
+  // 0 = ninguém na frente (API exposta direto, ex.: NodePort do kind): o header é ignorado.
+  // Ver confiarNoProxy() acima: só confia se o proxy tiver IP de rede interna.
+  const trustProxySaltos = inteiro('TRUST_PROXY_SALTOS', opcoes.trustProxySaltos ?? process.env.TRUST_PROXY_SALTOS, 1, 0, 10);
+
   const app = Fastify({
+    trustProxy: confiarNoProxy(trustProxySaltos),
     logger: opcoes.logger ?? { level: process.env.LOG_NIVEL ?? 'info' },
     requestIdHeader: false, // lido e validado no genReqId abaixo
     genReqId: (req) => {
@@ -68,8 +118,11 @@ export function buildApp(opcoes = {}) {
 
   // Mesma ideia do pool: quem recebe a fila pronta (teste) cuida de fechá-la.
   const criouFila = !opcoes.fila;
-  const fila = opcoes.fila ?? criarFila(opcoes.redisUrl ?? process.env.REDIS_URL);
+  const fila = opcoes.fila ?? criarFila(redisUrl);
   if (criouFila) app.addHook('onClose', async () => fila.fechar());
+
+  const redisDoLimite = opcoes.limiteEmMemoria ? null : criarRedisDoLimite(redisUrl);
+  if (redisDoLimite) app.addHook('onClose', async () => redisDoLimite.disconnect());
 
   // Todo response leva o x-request-id: é o "código" que o usuário informa no suporte (500 ERRO_INTERNO).
   app.addHook('onSend', async (req, rep) => {
@@ -130,9 +183,11 @@ export function buildApp(opcoes = {}) {
   });
 
   app.register(autenticacao, { segredo: jwtSegredo, servicoSegredo: jwtServicoSegredo });
+  // Depois da autenticação e ANTES das rotas (limite.js explica a ordem).
+  registrarLimite(app, { redis: redisDoLimite });
   app.register(rotasSaude, { pool, fila });
   app.register(rotasPlanos);
-  app.register(rotasAuth, { pool });
+  app.register(rotasAuth, { pool, limiteCadastroPorMin });
   app.register(rotasContatos, { pool });
   app.register(rotasImportacoes, { pool, fila });
   app.register(rotasInterno, { pool });

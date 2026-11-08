@@ -26,7 +26,7 @@ function nomesDePropriedade(schema, nomes = []) {
 
 /** Monta o app, deixa `extra` registrar rotas a mais (contra-teste) e devolve as rotas registradas. */
 async function rotasRegistradas(extra) {
-  const app = buildApp({ jwtSegredo: SEGREDO_FALSO, jwtServicoSegredo: 'y'.repeat(32), pool: POOL_FALSO, fila: FILA_FALSA, logger: false });
+  const app = buildApp({ jwtSegredo: SEGREDO_FALSO, jwtServicoSegredo: 'y'.repeat(32), pool: POOL_FALSO, fila: FILA_FALSA, limiteEmMemoria: true, logger: false });
   const rotas = [];
   app.addHook('onRoute', (rota) => rotas.push(rota));
   if (extra) app.register(extra);

@@ -52,7 +52,9 @@ async function travarImportacao(c, id) {
 }
 
 export default async function rotasInterno(app, { pool }) {
-  const config = { servico: true, naoEncontrado: NAO_ENCONTRADA };
+  // Sem rate limit: quem chama é o worker, que já se limita (lote + pausa + concurrency: 2). Um 429 aqui
+  // só atrasaria uma importação que o tenant já tem direito de fazer.
+  const config = { servico: true, naoEncontrado: NAO_ENCONTRADA, rateLimit: false };
 
   app.post(
     '/interno/importacoes/:id/inicio',

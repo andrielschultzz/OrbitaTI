@@ -224,6 +224,7 @@ describe('API no próprio processo', () => {
       pool,
       // O Redis do compose não tem porta publicada, e nenhuma rota da tabela enfileira: fila simulada.
       fila: { verificar: async () => true, enfileirar: async () => {} },
+      limiteEmMemoria: true, // o Redis do compose não tem porta publicada
       // O log em JSON vai para esta lista em vez do terminal: é o que o T-ISO-19 inspeciona.
       logger: { level: 'info', stream: { write: (linha) => logs.push(JSON.parse(linha)) } },
     });

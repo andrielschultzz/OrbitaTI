@@ -22,7 +22,7 @@ export default async function rotasPlanos(app) {
   app.get(
     '/planos',
     {
-      config: { publica: true },
+      config: { publica: true, rateLimit: false },
       schema: {
         response: {
           200: {

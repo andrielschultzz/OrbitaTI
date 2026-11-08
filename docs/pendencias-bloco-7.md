@@ -148,6 +148,28 @@ o registro, e um processo separado enfileira e apaga. Isso tira o CSV do payload
 
 **Falta no Bloco 7:** registrar o risco aceito e a ideia de mitigação no ADR-004, ao lado de C2.
 
+**Caso vizinho, conferido no bloco 5: o worker morre duas vezes no mesmo job.** O BullMQ só recupera um
+job travado uma vez (`maxStalledCount` = 1). A dúvida era se a importação terminaria como `falhou` ou
+ficaria presa em `processando`. **Termina como `falhou`.** Conferido no código do BullMQ 6.4.2 e no ensaio
+`scripts/ensaio-reprocessamento.ps1 -Quedas 2` (08/11/2026: `falhou` com 14/50 lotes, 1.400 contatos, sem
+duplicar):
+1. Na 2ª queda, o script `moveStalledJobsToWait` grava no job uma "falha adiada" (`defa = "job stalled
+   more than allowable limit"`) e o devolve à fila.
+2. O próximo worker que pega o job não o processa: lança `UnrecoverableError` e emite `failed`.
+3. O `worker.on('failed')` vê `UnrecoverableError` (`esgotouTentativas`) e chama `/interno/.../falha`.
+
+Os contatos dos lotes já aplicados ficam, sem duplicar. Reimportar o mesmo arquivo completa o resto (upsert).
+
+**O que ainda pode deixar a importação presa em `processando`** (não implementado, como combinado):
+- nenhum worker volta a subir (o job fica na fila esperando, como no T-RES-02);
+- o `POST /interno/.../falha` falha no instante do aviso (API fora). O worker só registra no log, e o
+  BullMQ não tenta de novo.
+
+**Ideia de mitigação:** a mesma do "faxineiro" acima, estendida. Para cada importação `processando` do
+tenant sem lote novo há mais de 5 minutos, perguntar ao BullMQ o estado do job (`queue.getJob(id)`). Se ele
+não existir ou estiver `failed`, marcar `falhou`. O custo e o gatilho são os mesmos (só quando o tenant
+tenta importar de novo).
+
 ### 7.2 Decisões do contrato e do código (I2 a I7)
 
 | # | O quê | Decisão | Onde está |
@@ -166,3 +188,44 @@ o registro, e um processo separado enfileira e apaga. Isso tira o CSV do payload
 | I8 | **BullMQ "envenenado" na partida.** Com `skipWaitingForReady` e `enableOfflineQueue: false`, a `Queue` manda um `INFO` ao Redis assim que é criada. A API sobe antes de a conexão ficar pronta, o `INFO` falha, e a `Queue` guarda essa falha para sempre: todo `add()` recebia "Stream isn't writeable" **com o Redis no ar**. Os testes unitários (fila simulada) não pegavam; o teste de integração pegou | A `Queue` passou a ser criada só quando a conexão já está `ready`, e é recriada se a inicialização falhar. Ensaio manual: Redis parado → 503; Redis de volta → 202 em 2 s, sem reiniciar a API | Citar no ADR-004 como exemplo de por que o teste de integração existe |
 | I9 | Jobs que sobrevivem ao tenant | Um job de um tenant já apagado ainda roda: o worker grava em `importacao.execucoes`, a API responde 404, o worker desiste sem gastar as 3 tentativas e o `/falha` também dá 404. Sobra uma linha órfã em `importacao.execucoes` | Bloco 14 (junto com B1): a exclusão de tenant precisa também remover os jobs pendentes do tenant na fila, ou apagar `importacao.*` **depois** que eles terminarem |
 | I10 | `concurrency: 2` e o lote máximo | A rota `/lotes` aceita até 5.000 contatos por lote (corpo até 4 MB), para o bloco 9 poder rodar "sem a mitigação" (`IMPORT_LOTE=5000`). O worker valida `IMPORT_LOTE` entre 1 e 5.000 | Entrar na tabela "Números do projeto" do `CLAUDE.md` junto com a `concurrency: 2` (observação de D2) |
+
+## 8. Decisões, riscos e achados do bloco 5 (08/11/2026)
+
+### 8.1 Decisões (J1 a J7)
+
+| # | O quê | Decisão | Onde está |
+|---|---|---|---|
+| J1 | Em que momento o rate limit roda | No `preHandler`, **depois** da autenticação: a chave padrão é o `tenant_id` do token, e a do login precisa do e-mail do corpo já validado. Consequência aceita: requisição **sem token não conta** no limite, porque o 401 sai antes. Rejeitá-la custa só um HMAC, e não há tenant para punir | `limite.js`; T-RL-01 |
+| J2 | Onde fica o contador | Sempre no **Redis**, numa conexão própria, separada da fila (`enableOfflineQueue: false`, `commandTimeout` de 1 s, `skipOnError: true`). Redis fora: o limite é ignorado e a API segue (T-RES-04). **Sem `REDIS_URL` a API não sobe.** Contador em memória só quando os testes pedem (`limiteEmMemoria`), porque com 2 réplicas no kind cada uma contaria separado e o limite dobraria sem ninguém perceber | `app.js`, `limite.js`; teste "sem REDIS_URL a API recusa subir" |
+| J3 | Escopo do contador | **Um por tenant**, somando todas as rotas, não 60 por rota (o T-RL-01 alterna duas rotas). Login: IP + e-mail **em minúsculas** (a mesma conta em maiúsculas não ganha contador novo). Cadastro: só IP | `limite.js`; T-RL-01, T-RL-03 |
+| J4 | `trustProxy` por número de saltos | **O Fastify não aceita mais.** Desde a 5.12.1 (18/08/2026, advisory [GHSA-3m5p-2c4r-xxw2](https://github.com/fastify/fastify/security/advisories/GHSA-3m5p-2c4r-xxw2), CVE-2026-16732), `trustProxy: <número>` não confia em ninguém: só contar saltos não confere **quem** conectou, e um cliente que alcançasse a API direto forjaria o IP. Provado com teste mínimo e com o `request.js` de 5.10.0 a 5.12.8 (aceito até 5.12.0, desligado a partir de 5.12.1); a documentação (`Server.md`) diz o mesmo. **Implementado:** `TRUST_PROXY_SALTOS` (padrão 1) **e** a conexão precisa vir de rede interna (loopback, 10/8, 172.16/12, 192.168/16, link-local, via `@fastify/proxy-addr`, o mesmo módulo que o Fastify usa). Se a API for exposta na internet por engano, o header de quem vem de fora é ignorado | `app.js` (`confiarNoProxy`); T-RL-06 (integração e unitário) |
+| J5 | Por que não fixar uma sub-rede confiável | Seria o jeito "oficial" (`trustProxy: '172.20.0.0/16'`), mas: (a) o compose escolhe a sub-rede sozinho e o IP do Nginx muda a cada subida; (b) fixar uma sub-rede no compose arrisca **colidir com a rede da VM do LARCC** (ou do campus), e a colisão derruba o acesso à VM ou aos contêineres; (c) a conta não fecha no kind, onde a rede de pods é outra. "Rede interna" cobre os três ambientes sem configuração | `app.js` |
+| J6 | `TRUST_PROXY_SALTOS` no kind (**para o bloco 6**) | Enquanto a API estiver exposta direto pelo **NodePort 30080**, os manifests do kind usam **`TRUST_PROXY_SALTOS=0`**. Motivo: o NodePort chega à API com **IP interno**, por causa do NAT (kube-proxy e a rede do Docker Desktop). Com 1, qualquer um que chamasse `localhost:30080` forjaria o `X-Forwarded-For` e passaria pela checagem de "rede interna". Passa para **1** quando o Nginx do Portal entrar na frente (Fase 6 do bloco 13) | Falta no bloco 6: `deploy/k8s/` com `TRUST_PROXY_SALTOS: "0"` |
+| J7 | A suíte de testes e o limite de cadastro | Medido: cerca de **51** `POST /auth/cadastro` por execução (os 400 e 409 dos testes de cadastro também contam). Num IP só, duas execuções seguidas chegaram a **56 de 60**. Decisão: cada arquivo de teste manda `X-Forwarded-For: 203.0.113.N` (faixa de documentação, RFC 5737), um N por arquivo. Depois disso: 2 execuções seguidas + `npm run seed`, nenhum 429 inesperado (o maior IP ficou em 24). **O padrão de produção (60) não mudou.** A suíte depende de `TRUST_PROXY_SALTOS=1` no compose | `tests/apoio/api.js`; README |
+
+### 8.2 Risco aceito: quem já está na rede interna pode forjar o `X-Forwarded-For` (J8)
+
+Com `TRUST_PROXY_SALTOS=1`, a API confia no último endereço do `X-Forwarded-For` de **qualquer** conexão
+vinda da rede interna. Quem já está lá dentro pode mandar um IP diferente a cada tentativa e ganhar um
+contador de login novo a cada vez: força bruta "distribuída" contra uma conta. Exemplos: outro contêiner do
+compose, ou alguém no próprio host chamando `127.0.0.1:3000`.
+
+**Por que a porta 3000 em 127.0.0.1 (bloco 2) resolve para quem está de fora:**
+- Ninguém da rede alcança a API direto. O único caminho de fora é o Nginx do Portal.
+- O Nginx acrescenta o IP real de quem conectou nele no **fim** do header (`$proxy_add_x_forwarded_for`).
+- Com 1 salto, a API só aproveita esse último endereço. O que o cliente forjou fica à esquerda e é ignorado
+  (teste unitário "1 salto: só o último endereço do header conta").
+
+Para forjar, é preciso já ter acesso ao host ou à rede dos contêineres, e aí o atacante tem caminhos
+melhores que adivinhar senha.
+
+**Falta no Bloco 7:** registrar no ADR-004 (ou numa nota do ADR-002) junto com J4 a J6.
+
+### 8.3 Achados (J9 a J12)
+
+| # | Achado | O que foi feito | Falta |
+|---|---|---|---|
+| J9 | Worker morre 2 vezes no mesmo job | Termina como `falhou`; detalhes e o que ainda pode prender a importação na seção 7.1 | — |
+| J10 | `importacao.execucoes` perde a história de um job travado. (a) A re-execução depois do travamento usa a **mesma** `tentativa`, porque o BullMQ não incrementa `attemptsMade` em job travado, e o upsert sobrescreve a linha (ensaio de 1 queda: só `1:concluida`). (b) Na falha adiada (2ª queda), o BullMQ falha o job **sem** chamar o processador, então `finalizarExecucao` nunca roda e a linha fica `processando` (ensaio de 2 quedas: `1:processando`) | Só registrado. Não afeta o que o usuário vê (`orbita.importacoes` fica certa) | Decidir no Bloco 7 (ADR-004): usar `job.attemptsStarted` como número da execução e, no `worker.on('failed')`, marcar a execução como `erro` |
+| J11 | A linha `incoming request` do log da API não tem `tenant_id` | É escrita no `onRequest`, antes da autenticação; todas as linhas seguintes da requisição (inclusive `request completed`) têm. Login e cadastro também passaram a levar o `tenant_id` depois do sucesso | — |
+| J12 | O plugin devolve também `x-ratelimit-limit`, `x-ratelimit-remaining` e `x-ratelimit-reset` em toda resposta limitada | O contrato só cita o `Retry-After` do 429. Não mudei o contrato (bloco 5: sem alteração em `docs/`) | Bloco 7: citar os três headers na seção 1 do `contrato-api.md` (o Portal pode usá-los para avisar antes do 429) |

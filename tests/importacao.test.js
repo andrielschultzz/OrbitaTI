@@ -143,7 +143,7 @@ describe('T-IMP-22: 503 FILA_INDISPONIVEL (bloco 4, item 2)', () => {
   afterAll(() => pool?.end());
 
   async function comFila(fila, fn) {
-    const app = buildApp({ pool, fila, logger: false });
+    const app = buildApp({ pool, fila, limiteEmMemoria: true, logger: false });
     try {
       return await fn(app);
     } finally {

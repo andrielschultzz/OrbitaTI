@@ -9,7 +9,7 @@ const FILA_FALSA = { verificar: async () => true, enfileirar: async () => {} };
 
 let app;
 beforeAll(async () => {
-  app = buildApp({ jwtSegredo: 'x'.repeat(32), jwtServicoSegredo: 'y'.repeat(32), pool: POOL_FALSO, fila: FILA_FALSA, logger: false });
+  app = buildApp({ jwtSegredo: 'x'.repeat(32), jwtServicoSegredo: 'y'.repeat(32), pool: POOL_FALSO, fila: FILA_FALSA, limiteEmMemoria: true, logger: false });
   await app.ready();
 });
 afterAll(() => app.close());
