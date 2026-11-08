@@ -1,0 +1,5 @@
+# Só o que a imagem orbitati/migrate precisa.
+node_modules
+init
+Dockerfile
+.dockerignore

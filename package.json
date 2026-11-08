@@ -1,0 +1,21 @@
+{
+  "name": "orbitati",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "OrbitaTI: CRM multi-tenant (pool + RLS). Raiz dos serviços (npm workspaces) e dos testes de integração.",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "services/*"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "env": "node scripts/gerar-env.js"
+  },
+  "devDependencies": {
+    "pg": "8.23.1",
+    "vitest": "5.1.0"
+  }
+}

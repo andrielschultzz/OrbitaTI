@@ -1,0 +1,64 @@
+# OrbitaTI: stack local. Bloco 1: postgres, redis e o job de migrações.
+# A API (bloco 2), o worker (bloco 4) e o Portal (bloco 13, Fase 6) entram aqui depois.
+#
+#   docker compose up -d --wait        sobe postgres e redis (saudáveis)
+#   docker compose run --rm migrate    aplica migrações pendentes
+#
+# Variáveis vêm do .env (copie o .env.example ou rode `npm run env`).
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: orbitati
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+      # Lidas só pelo db/init/01-papeis.sh, no primeiro boot (volume vazio).
+      DB_SENHA_MIGRADOR: ${DB_SENHA_MIGRADOR:?defina DB_SENHA_MIGRADOR no .env}
+      DB_SENHA_API: ${DB_SENHA_API:?defina DB_SENHA_API no .env}
+      DB_SENHA_IMPORTACAO: ${DB_SENHA_IMPORTACAO:?defina DB_SENHA_IMPORTACAO no .env}
+    volumes:
+      - pgdados:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    # Só 127.0.0.1: os testes rodam no host e precisam do banco, mas ninguém da rede alcança a porta.
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      # -h 127.0.0.1: testa pelo TCP. Durante o init o Postgres só aceita socket local; assim o
+      # "saudável" só aparece depois que os papéis foram criados e o servidor reiniciou para valer.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d orbitati"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    # Sem porta publicada: só os serviços da rede do compose falam com o Redis.
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    # Imagem própria e pequena (db/Dockerfile): o pg vai dentro dela, sem depender do node_modules do
+    # host. É a mesma imagem orbitati/migrate que o kind (bloco 6) reaproveita.
+    build: ./db
+    image: orbitati/migrate:0.1.0
+    # Perfil próprio: o `up -d --wait` não sobe o migrate. Ele roda e SAI, e o --wait trata qualquer
+    # contêiner que sai como falha (exit 1 mesmo com "exited (0)"). Roda com `docker compose run --rm migrate`.
+    # Bloco 2: quando a API tiver depends_on migrate (service_completed_successfully), rever este perfil.
+    profiles: ["ferramentas"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL_MIGRADOR:?defina DATABASE_URL_MIGRADOR no .env}
+    volumes:
+      # Só no ambiente local: a migração nova vale sem rebuild. A imagem também traz as migrações,
+      # para o kind e o CI, que não montam pastas do host.
+      - ./db/migrations:/app/migrations:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+volumes:
+  pgdados:
