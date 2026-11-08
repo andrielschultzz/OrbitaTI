@@ -1,0 +1,65 @@
+ Container orbitati-postgres-1 Running 
+ Container orbitati-redis-1 Running 
+ Container orbitati-api-contatos-1 Running 
+ Container orbitati-postgres-1 Waiting 
+ Container orbitati-postgres-1 Healthy 
+ Container orbitati-migrate-1 Starting 
+ Container orbitati-migrate-1 Started 
+ Container orbitati-migrate-1 Waiting 
+ Container orbitati-redis-1 Waiting 
+ Container orbitati-postgres-1 Waiting 
+ Container orbitati-migrate-1 Exited 
+ Container orbitati-redis-1 Healthy 
+ Container orbitati-postgres-1 Healthy 
+ Container orbitati-api-contatos-1 Waiting 
+ Container orbitati-api-contatos-1 Healthy 
+ Container orbitati-k6-run-ccdb79a8a7a8 Creating 
+ Container orbitati-k6-run-ccdb79a8a7a8 Created 
+time="2026-11-08T21:24:41Z" level=info msg="SETUP rodada=2026-11-08_182425-com observadores=10x50 linhas=5000" source=console
+time="2026-11-08T21:25:06Z" level=info msg="JANELA 1 1794173081164 1794173106263 concluida" source=console
+time="2026-11-08T21:25:26Z" level=info msg="JANELA 2 1794173101164 1794173126268 concluida" source=console
+time="2026-11-08T21:25:46Z" level=info msg="JANELA 3 1794173121162 1794173146258 concluida" source=console
+
+
+  █ THRESHOLDS 
+
+    http_req_duration{cenario:observadores}
+    ✓ 'p(95)<800' p(95)=5.05ms
+    ✓ 'max<2000' max=7.55ms
+
+    http_req_failed{cenario:observadores}
+    ✓ 'rate==0' rate=0.00%
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 400     3.22301/s
+    checks_succeeded...: 100.00% 400 out of 400
+    checks_failed......: 0.00%   0 out of 400
+
+    ✓ busca 200
+
+    CUSTOM
+    janela_fim_ms..................: 1794173146258 min=1794173106263 max=1794173146258
+    janela_inicio_ms...............: 1794173121162 min=1794173081164 max=1794173121162
+
+    HTTP
+    http_req_duration..............: avg=3.87ms min=1.97ms med=3.14ms max=33.24ms p(90)=4.96ms p(95)=5.87ms
+      { cenario:observadores }.....: avg=3.43ms min=1.97ms med=3.16ms max=7.55ms  p(90)=4.67ms p(95)=5.05ms
+      { expected_response:true }...: avg=3.87ms min=1.97ms med=3.14ms max=33.24ms p(90)=4.96ms p(95)=5.87ms
+    http_req_failed................: 0.00%         0 out of 510
+      { cenario:observadores }.....: 0.00%         0 out of 400
+    http_reqs......................: 510           4.109338/s
+
+    EXECUTION
+    iteration_duration.............: avg=1m43s  min=25.1s  med=2m0s   max=2m2s    p(90)=2m2s   p(95)=2m2s  
+    iterations.....................: 13            0.104748/s
+    vus............................: 1             min=0             max=13           
+    vus_max........................: 13            min=13            max=13           
+
+    NETWORK
+    data_received..................: 5.6 MB        46 kB/s
+    data_sent......................: 828 kB        6.7 kB/s
+
+
+

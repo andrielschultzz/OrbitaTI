@@ -1,0 +1,46 @@
+{
+  "janelas": [
+    {
+      "importacao": "1",
+      "inicio": 1794173081164,
+      "fim": 1794173106263,
+      "status": "concluida",
+      "duracao_s": 25.099
+    },
+    {
+      "importacao": "2",
+      "inicio": 1794173101164,
+      "fim": 1794173126268,
+      "status": "concluida",
+      "duracao_s": 25.104
+    },
+    {
+      "importacao": "3",
+      "inicio": 1794173121162,
+      "fim": 1794173146258,
+      "status": "concluida",
+      "duracao_s": 25.096
+    }
+  ],
+  "na_janela": {
+    "n": 216,
+    "p50": 3.141862,
+    "p95": 4.723955,
+    "p99": 5.258888,
+    "max": 5.912359
+  },
+  "geral": {
+    "n": 400,
+    "p50": 3.165124,
+    "p95": 5.049379,
+    "p99": 6.03423,
+    "max": 7.551851
+  },
+  "falhas": {
+    "total": 0,
+    "na_janela": 0
+  },
+  "veredito": "passou",
+  "motivos": [],
+  "avisos": []
+}

@@ -149,5 +149,22 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  k6:
+    # Teste de carga do CQ-01 (bloco 9). Só existe com o profile: `up` normal não o sobe.
+    #   docker compose --profile carga run --rm k6 run /scripts/cq01.js
+    # Roda DENTRO da rede do compose: mede a API do lado do servidor, sem rede doméstica nem 4G no meio.
+    # Versão fixa: outra versão do k6 pode mudar o cálculo do resumo e tornar as rodadas incomparáveis.
+    image: grafana/k6:1.3.0
+    profiles: [carga]
+    environment:
+      API_URL: http://api-contatos:3000
+    volumes:
+      - ./tests/carga:/scripts:ro
+      # Saída (JSON das requisições e resumo). O medir-cq01.ps1 cria uma pasta por execução aqui dentro.
+      - ./tests/carga/resultados:/resultados
+    depends_on:
+      api-contatos:
+        condition: service_healthy
+
 volumes:
   pgdados:

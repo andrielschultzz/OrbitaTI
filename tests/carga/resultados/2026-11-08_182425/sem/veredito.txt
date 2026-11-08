@@ -1,0 +1,13 @@
+Janelas (UTC):
+  importação 1: 21:26:55.924 → 21:26:56.940  (1.0 s, concluida)
+  importação 2: 21:27:15.923 → 21:27:16.935  (1.0 s, concluida)
+  importação 3: 21:27:35.920 → 21:27:36.936  (1.0 s, concluida)
+
+| grupo | n | p50 (ms) | p95 (ms) | p99 (ms) | máx (ms) |
+|---|---:|---:|---:|---:|---:|
+| na janela | 10 | 2.8 | 4.7 | 4.7 | 4.7 |
+| geral | 400 | 3.3 | 5.4 | 6.3 | 7.1 |
+
+Falhas dos observadores: 0 no total, 0 na janela
+AVISO: n na janela = 10 < 20: amostra pequena demais, serve só como registro
+VEREDITO CQ-01: SEM CRITÉRIO
