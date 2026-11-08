@@ -37,7 +37,7 @@ Microsserviço é uma unidade independente de negócio e de dados. Em multi-tena
 
 ### 1. As caixas
 
-**Foto do desenho:** `docs/desenho-servicos.jpg`
+**Foto do desenho:** A foto do desenho feito no encontro não foi preservada. O diagrama digitado abaixo é a versão do desenho.
 
 ```text
         [ Navegador ]
@@ -70,3 +70,19 @@ O Row-Level Security (RLS) do PostgreSQL.
 
 **d) Se o segundo serviço cair, o que o usuário ainda consegue fazer?**
 Tudo menos importar contatos em massa; as importações ficam na fila até ele voltar.
+
+---
+
+## Revisão de 08/11/2026 (Bloco 7)
+
+> O que está acima é o registro do encontro de 15/10 e não foi alterado.
+
+O desenho acertou o principal: a Importação grava os contatos **pela API** ("grava contatos em lote", seta de
+volta), e não direto no banco. Mudaram dois detalhes ([ADR-004](adr/adr-004-comunicacao-entre-servicos.md)):
+
+- **Não há `arquivo_id`.** O job leva `tenant_id`, `importacao_id` e o próprio CSV, de até 1 MB. Não há armazenamento S3.
+- **O progresso da importação fica no schema `orbita`** (`orbita.importacoes`), atualizado pela API a cada
+  lote. A API nunca lê o schema `importacao`.
+
+O diagrama completo da Etapa 2 está em
+[`02-arquitetura-c4.md`](02-arquitetura-c4.md#estado-na-etapa-2).

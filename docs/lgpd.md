@@ -1,6 +1,6 @@
 # 1.5 — Mapeamento LGPD preliminar
 
-**Unidade:** Andriel Schultz e Cristofer
+**Unidade:** Andriel Schultz e Cristofer Mateus Rutzen
 **Etapa 1 — Proposta de arquitetura**
 **Status:** preliminar — aprofundado na Etapa 3
 
@@ -69,9 +69,15 @@ O tenant passa por cinco fases — assinar, configurar, usar, crescer e sair. A 
 | **Configurar / usar** | Tenant insere contatos. A partir daqui o OrbitaTI trata dado de terceiro como operador |
 | **Crescer** | Volume aumenta; papéis e permissões se diferenciam |
 | **Cancelar** | Conta entra em modo somente leitura. **Exportação completa em CSV e JSON disponível por 30 dias** |
-| **Excluir** | Após 30 dias, exclusão definitiva: `DELETE` em cascata por `tenant_id` + remoção do prefixo no armazenamento de objetos. Logs de acesso sobrevivem os 6 meses do Marco Civil, desvinculados do conteúdo |
+| **Excluir** | Após 30 dias, exclusão definitiva: `DELETE` em cascata por `tenant_id` + remoção do prefixo no armazenamento de objetos (o armazenamento está adiado, ver [ADR-004](adr/adr-004-comunicacao-entre-servicos.md)). Logs de acesso sobrevivem os 6 meses do Marco Civil, desvinculados do conteúdo |
 
 O prazo de 30 dias é declarado no contrato e implementado como job agendado, não como tarefa manual. **Exclusão que depende de alguém lembrar não é medida de segurança.**
+
+**O cascade não alcança o schema `importacao`** (achados B1 e I9, revisão de 08/11/2026). As tabelas de `orbita` apagam em cascata a partir de `orbita.tenants`, mas as de `importacao` não têm chave estrangeira para lá: é a fronteira entre os serviços, e o papel `importacao_svc` não enxerga `orbita`.
+
+- **O que a exclusão precisa apagar também:** `importacao.execucoes` e `importacao.erros_linha` do tenant, como `importacao_svc` e com o tenant fixado. O `motivo` de um erro de linha pode citar dado do contato, então deixá-lo ali depois dos 30 dias contraria a LGPD.
+- **Jobs pendentes:** é preciso remover da fila os jobs do tenant, ou apagar `importacao.*` só depois que eles terminarem. Um job de um tenant já apagado ainda grava em `importacao.execucoes`.
+- **Quando:** no bloco 14, coberto pelo T-LGPD-03.
 
 ---
 
@@ -93,11 +99,13 @@ O prazo de 30 dias é declarado no contrato e implementado como job agendado, n�
 
 ### A implementar até a Etapa 3
 
+> **Revisão de 08/11/2026:** os três itens marcados originalmente para a Etapa 2 não entraram nela (a Etapa 2 priorizou o núcleo multi-tenant) e foram remarcados para o bloco 14, na Etapa 4.
+
 | Medida | Prazo |
 |---|---|
-| Contrato de operador (DPA) no termo de uso, com instruções de tratamento | Etapa 2 |
-| Exportação self-service em CSV e JSON pelo Portal Web | Etapa 2 |
-| Job de exclusão automática 30 dias após cancelamento | Etapa 2 |
+| Contrato de operador (DPA) no termo de uso, com instruções de tratamento | Esboço de uma página no bloco 14 (Etapa 4) |
+| Exportação self-service pelo Portal Web (o contrato define JSON, seção 9 de [`contrato-api.md`](contrato-api.md)) | Bloco 14 (Etapa 4) |
+| Job de exclusão automática 30 dias após cancelamento | Bloco 14 (Etapa 4) |
 | Registro de operações de tratamento — art. 37 | Etapa 3 |
 | Procedimento de resposta a incidente com prazo de comunicação à ANPD | Etapa 3 |
 | Alerta de dado sensível em campo livre | Etapa 3 |

@@ -1,9 +1,9 @@
 # 1.2 — Arquitetura C4: OrbitaTI
 
-**Unidade:** Andriel Schultz e Cristofer
+**Unidade:** Andriel Schultz e Cristofer Mateus Rutzen
 **Etapa 1 — Proposta de arquitetura**
 
-Este documento apresenta os níveis 1 e 2 completos e um esboço do nível 3. O modelo de tenancy que fundamenta os limites desenhados aqui está em [`adr/adr-001-tenancy.md`](adr/adr-001-tenancy.md).
+Este documento apresenta os níveis 1 e 2 completos e um esboço do nível 3, como propostos na Etapa 1. O que foi de fato construído está em [Estado na Etapa 2](#estado-na-etapa-2). O modelo de tenancy que fundamenta os limites desenhados aqui está em [`adr/adr-001-tenancy.md`](adr/adr-001-tenancy.md).
 
 ---
 
@@ -16,8 +16,8 @@ O OrbitaTI adota **pool**: todos os tenants compartilham as mesmas tabelas, sepa
 | Camada | Onde vive | O que faz | O que acontece se falhar |
 |---|---|---|---|
 | **1. Token** | API REST — middleware de autenticação | Extrai o `tenant_id` do JWT assinado e o injeta no contexto da requisição. O cliente nunca envia `tenant_id` como parâmetro | Requisição rejeitada com 401 antes de tocar em qualquer dado |
-| **2. Sessão de banco** | API REST — camada de acesso a dados | Executa `SET LOCAL app.tenant_id` na transação, a partir do contexto | A query roda sem tenant definido e a política de RLS não devolve nenhuma linha |
-| **3. Row-Level Security** | PostgreSQL | Política `USING (tenant_id = current_setting('app.tenant_id')::uuid)` em toda tabela com dado de tenant | Nada passa. É a rede de segurança: mesmo um `SELECT * FROM contatos` sem `WHERE` só enxerga o tenant da sessão |
+| **2. Sessão de banco** | API REST — camada de acesso a dados | Abre a transação com `withTenant` e executa `SELECT set_config('app.tenant_id', $1, true)`, a partir do contexto. O `true` faz o valor morrer no fim da transação, como um `SET LOCAL`, mas aceita parâmetro (o `SET LOCAL` obrigaria concatenar texto, ver [ADR-001](adr/adr-001-tenancy.md)) | A query roda sem tenant definido e a política de RLS não devolve nenhuma linha, sem erro |
+| **3. Row-Level Security** | PostgreSQL | Política `tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid` (`USING` e `WITH CHECK`), com `ENABLE` + `FORCE`, em toda tabela com dado de tenant. O `NULLIF` faz uma sessão sem tenant ver 0 linhas em vez de dar erro | Nada passa. É a rede de segurança: mesmo um `SELECT * FROM contatos` sem `WHERE` só enxerga o tenant da sessão |
 
 A camada 3 existe porque as camadas 1 e 2 dependem de o desenvolvedor não errar. O RLS é a única que não depende — e por isso é ela, e não a disciplina do time, que sustenta a promessa de isolamento no cenário CQ-02 de [`atributos.md`](atributos.md).
 
@@ -69,7 +69,14 @@ O webhook para o sistema do tenant é o degrau 3 da escada de customização: o 
 
 ## Nível 2 — Containers
 
-O que roda dentro do OrbitaTI.
+O que roda dentro do OrbitaTI, **como proposto na Etapa 1**. O diagrama fica como registro do desenho original.
+Três pontos mudaram na Etapa 2 ([ADR-004](adr/adr-004-comunicacao-entre-servicos.md)):
+
+- o Worker de Importação não grava no banco: chama a API;
+- o CSV vai no payload do job, sem armazenamento S3;
+- o Gerador de Documentos e o Serviço de Notificações não foram construídos.
+
+O desenho atual está em [Estado na Etapa 2](#estado-na-etapa-2).
 
 ```mermaid
 flowchart TB
@@ -99,7 +106,7 @@ flowchart TB
     user -->|"HTTPS"| portal
     portal -->|"JSON/HTTPS<br/><b>Bearer JWT com tenant_id</b>"| api
 
-    api -->|"SQL<br/><b>SET LOCAL app.tenant_id</b><br/>antes de cada transação"| db
+    api -->|"SQL<br/><b>set_config app.tenant_id</b><br/>antes de cada transação"| db
     api -->|"Enfileira job<br/>com tenant_id no payload"| fila
     api -->|"Lê e grava<br/>prefixo do tenant"| blob
 
@@ -107,10 +114,10 @@ flowchart TB
     fila -->|"Consome"| wdoc
     fila -->|"Consome"| notif
 
-    wimport -->|"SQL em lotes<br/><b>SET LOCAL app.tenant_id</b>"| db
-    wdoc -->|"SQL leitura<br/><b>SET LOCAL app.tenant_id</b>"| db
+    wimport -->|"SQL em lotes<br/><b>set_config app.tenant_id</b>"| db
+    wdoc -->|"SQL leitura<br/><b>set_config app.tenant_id</b>"| db
     wdoc -->|"Grava PDF"| blob
-    notif -->|"SQL leitura<br/><b>SET LOCAL app.tenant_id</b>"| db
+    notif -->|"SQL leitura<br/><b>set_config app.tenant_id</b>"| db
     notif -->|"SMTP/API"| email
     api -->|"HTTPS POST<br/>plano Equipe"| externo
 
@@ -130,7 +137,7 @@ flowchart TB
 | Container | Tecnologia | Responsabilidade | Como respeita o limite de tenant |
 |---|---|---|---|
 | **Portal Web** | React, SPA | Única interface do produto; responsiva, pensada para uso em celular | Guarda o JWT; **nunca** envia `tenant_id` como parâmetro — se enviasse, bastaria trocar o valor para ler outro tenant |
-| **API REST** | Node.js + Fastify | Regras de negócio, autenticação, autorização, quotas e avaliação de feature flags | Middleware extrai o `tenant_id` do JWT assinado e o fixa no contexto; a camada de dados abre toda transação com `SET LOCAL app.tenant_id` |
+| **API REST** | Node.js + Fastify | Regras de negócio, autenticação, autorização, quotas e avaliação de feature flags | Middleware extrai o `tenant_id` do JWT assinado e o fixa no contexto; a camada de dados abre toda transação com `set_config('app.tenant_id', $1, true)` |
 | **Fila de Trabalhos** | Redis + BullMQ | Tira trabalho pesado do caminho da requisição; aplica prioridade e limite de jobs simultâneos por tenant | O `tenant_id` viaja no payload do job e é reaplicado pelo worker antes de qualquer query |
 | **Worker de Importação** | Node.js | Processa CSV em lotes de 100 linhas com pausa entre lotes | Executa a quota do cenário CQ-01: é o container que impede o vizinho barulhento |
 | **Gerador de Documentos** | Node.js + Puppeteer | Renderiza proposta em PDF a partir do template configurado pelo tenant | Lê o template do próprio tenant; grava no prefixo `/{tenant_id}/` do armazenamento |
@@ -169,7 +176,7 @@ flowchart TB
 
         ctrConfig["<b>Controlador de Configuração</b><br/><i>[componente]</i><br/>Campos personalizados, categorias,<br/>usuários, template de proposta"]
 
-        repo["<b>Camada de Acesso a Dados</b><br/><i>[componente]</i><br/><b>Abre transação com</b><br/><b>SET LOCAL app.tenant_id</b><br/>Nenhuma query passa por fora"]
+        repo["<b>Camada de Acesso a Dados</b><br/><i>[componente]</i><br/><b>Abre transação com</b><br/><b>set_config app.tenant_id</b><br/>Nenhuma query passa por fora"]
     end
 
     db[("<b>PostgreSQL</b><br/>Pool + RLS")]
@@ -206,10 +213,101 @@ Os dois componentes em laranja são os que sustentam o isolamento. O **Resolvedo
 
 ---
 
-## Estado atual da implementação
+<a id="estado-na-etapa-2"></a>
+## Estado na Etapa 2
 
-> Atualizado em 07/11/2026 (bloco 13). Os diagramas acima são a **proposta** da Etapa 1. Esta seção diz o
-> que já existe em código.
+> Atualizado em 08/11/2026 (Bloco 7). Os diagramas acima são a **proposta** da Etapa 1 e ficam como
+> registro. Esta seção mostra o que existe em código e o que ficou para depois.
+
+### Nível 2 — o que existe hoje
+
+```mermaid
+flowchart TB
+    user["<b>Usuário do tenant</b><br/>Profissional de TI"]
+
+    subgraph sistema["OrbitaTI — Etapa 2 (compose e kind)"]
+        portal["<b>Portal Web</b><br/><i>[nginx + SPA React]</i><br/>Implementado contra o simulador.<br/>Integração pendente:<br/>Fase 6 do bloco 13"]
+
+        api["<b>API de Contatos</b><br/><i>[Node.js 22 + Fastify 5]</i><br/>Auth, contatos, importações,<br/>rate limit, rotas /interno.<br/><b>tenant_id só do JWT</b><br/>2 réplicas no kind"]
+
+        redis[["<b>Fila e contadores</b><br/><i>[Redis 7 + BullMQ]</i><br/>Jobs de importação<br/>e rate limit.<br/>Sem persistência"]]
+
+        worker["<b>Serviço de Importação</b><br/><i>[Node.js 22 + BullMQ]</i><br/>Valida o CSV, lotes de 100,<br/>pausa de 500 ms,<br/>concurrency: 2"]
+
+        subgraph pg["PostgreSQL 16 — pool + RLS em toda tabela"]
+            orbita[("<b>schema orbita</b><br/>tenants, usuarios, contatos,<br/>importacoes, lotes_aplicados<br/>papel: api_contatos")]
+            imp[("<b>schema importacao</b><br/>execucoes, erros_linha<br/>papel: importacao_svc")]
+        end
+
+        migrate["<b>migrate</b><br/><i>[job]</i><br/>Migrações SQL<br/>papel: migrador"]
+    end
+
+    subgraph naofeito["Não construído na Etapa 2"]
+        notif["<b>Serviço de Notificações</b><br/>planejado, bloco 10"]
+        wdoc["<b>Gerador de Documentos</b><br/>fora do escopo do semestre"]
+        blob[("<b>Armazenamento S3</b><br/>adiado, ver ADR-004")]
+    end
+
+    user -->|"HTTPS"| portal
+    portal -.->|"/api, JSON + Bearer JWT<br/>hoje vai ao simulador"| api
+    api -->|"SQL em withTenant<br/><b>set_config app.tenant_id</b>"| orbita
+    api -->|"① add job: tenant_id + CSV até 1 MB<br/>jobId = importacao_id"| redis
+    api -->|"contadores do rate limit"| redis
+    redis -->|"② entrega o job"| worker
+    worker -->|"③ POST /interno/.../inicio, /lotes, /falha<br/><b>token de serviço, 60 s, claim tenant_id</b>"| api
+    worker -->|"SQL com tenant fixado<br/>execuções e erros de linha"| imp
+    migrate -->|"DDL, RLS e GRANTs"| orbita
+    migrate -->|"DDL, RLS e GRANTs"| imp
+
+    classDef pessoa fill:#0b4f6c,stroke:#08313f,color:#fff
+    classDef container fill:#1c7c54,stroke:#0f4a31,color:#fff
+    classDef dados fill:#7c5295,stroke:#4a2f59,color:#fff
+    classDef parcial fill:#b45309,stroke:#78350f,color:#fff
+    classDef ausente fill:#9ca3af,stroke:#4b5563,color:#fff,stroke-dasharray: 5 3
+
+    class user pessoa
+    class api,redis,worker,migrate container
+    class orbita,imp dados
+    class portal parcial
+    class notif,wdoc,blob ausente
+```
+
+**Leitura do diagrama.**
+
+- **Em verde, o que roda.** No compose são 5 contêineres: `postgres`, `redis`, `migrate`, `api-contatos` e
+  `importacao`. No kind, os mesmos, com a API em 2 réplicas (`deploy/k8s/`).
+- **Em laranja, o Portal.** Está pronto e testado, mas fala com o simulador do contrato.
+- **Em cinza tracejado, o que não foi construído.**
+- **A seta ③ é a principal mudança em relação à proposta.** O Serviço de Importação não grava contatos no
+  banco: chama a API. O papel `importacao_svc` não tem nenhum GRANT no schema `orbita` (T-RLS-07). Cada serviço
+  é dono do seu schema, e o progresso da importação fica em `orbita.importacoes`, atualizado pela API (o
+  `GET /importacoes/:id` nunca lê `importacao`).
+
+| Container | Estado | Onde está | Como respeita o limite de tenant | Prova |
+|---|---|---|---|---|
+| **API de Contatos** | Implementado | `services/api-contatos/` | `tenant_id` só do JWT; todo acesso a dado de tenant em `withTenant`; 404 para recurso de outro tenant | T-ISO-01 a 15 e 19, `scripts/demo-isolamento.ps1` |
+| **Serviço de Importação** | Implementado | `services/importacao/` | Recebe o tenant no payload do job e o devolve à API no token de serviço; no schema `importacao`, fixa o tenant como a API | T-ISO-09, T-RLS-07, T-RLS-16, T-IMP-* |
+| **Fila e contadores** | Implementado | `redis` no compose, `deploy/k8s/20-redis.yaml` | O job leva `tenant_id`; o rate limit conta por tenant | T-OBS-02, T-RL-01 |
+| **PostgreSQL** | Implementado | `db/migrations/`, `db/init/` | RLS com `ENABLE` + `FORCE` e `NULLIF` em toda tabela com `tenant_id`; nenhum papel de aplicação com `BYPASSRLS` | T-RLS-01 a 19 |
+| **migrate** | Implementado | `db/migrate.js`, `db/Dockerfile` | Roda como `migrador`, só no job de migração; a senha não chega a nenhum serviço | T-RLS-15, T-RLS-19 |
+| **Portal Web** | Implementado contra o simulador; integração pendente (Fase 6 do bloco 13) | `web/` | JWT no `sessionStorage`, tenant nunca em URL, query ou corpo | T-WEB-01 (simulador) |
+| **Serviço de Notificações** | Planejado — bloco 10 | — | — | — |
+| **Gerador de Documentos** | Fora do escopo do semestre ([`contrato-api.md`](contrato-api.md), seção 10) | — | — | — |
+| **Armazenamento S3** | Adiado — ver [ADR-004](adr/adr-004-comunicacao-entre-servicos.md) (o CSV vai no payload do job) | — | — | — |
+
+**O que aconteceu com os componentes do nível 3:**
+
+| Componente proposto | Onde está hoje |
+|---|---|
+| Middleware de Autenticação + Resolvedor de Tenant | `services/api-contatos/src/autenticacao.js` (dois segredos: usuário e serviço) |
+| Guarda de Quotas | `limite.js` (rate limit) e a contagem de importações simultâneas em `rotas/importacoes.js` |
+| Avaliador de Feature Flags | `planos.js`: os limites de cada plano, expostos em `GET /planos` |
+| Controlador de Contatos | `rotas/contatos.js`, `rotas/importacoes.js` e `rotas/interno.js` |
+| Camada de Acesso a Dados | `db.js` (`withTenant`) |
+| Controladores de Oportunidades e de Configuração | Não construídos (fora do escopo do semestre) |
+
+O que acontece quando a Importação ou o Redis caem, o CSV no payload e a conta de memória do Redis estão no
+[ADR-004](adr/adr-004-comunicacao-entre-servicos.md).
 
 ### Portal Web: implementado, ligado ao simulador
 
@@ -241,12 +339,11 @@ flowchart LR
 - **O limite de tenant no Portal** segue a tabela "Containers em detalhe": o JWT fica no
   `sessionStorage` da aba e o tenant nunca aparece em URL, query ou corpo. O cliente HTTP trava isso em
   desenvolvimento, e o teste T-WEB-01 confere no fluxo inteiro.
-- **Ainda não ligado à API real.** O `/api` aponta para o **simulador** do contrato (`web/simulador/`),
-  porque a API REST (blocos 2, 4 e 12) ainda não existe. A integração e a entrada do `web` no compose e no
-  kind são a Fase 6 do bloco 13, **pendente**: ver [`portal-pendencias.md`](portal-pendencias.md).
-
-Os outros containers (API, fila, worker, banco) ainda não existem em código nesta data. Cada um tem o
-seu bloco em `prompts/`.
+- **Ainda não ligado à API real.** A API existe desde a Etapa 2, mas o `/api` do Portal ainda aponta para o
+  **simulador** do contrato (`web/simulador/`). A integração e a entrada do `web` no compose e no kind são a
+  Fase 6 do bloco 13, **pendente**: ver [`portal-pendencias.md`](portal-pendencias.md). Quando o nginx entrar
+  na frente, o `TRUST_PROXY_SALTOS` do kind passa de 0 para 1 ([ADR-004](adr/adr-004-comunicacao-entre-servicos.md),
+  "Borda: Nginx → API").
 
 ---
 
@@ -257,6 +354,7 @@ seu bloco em `prompts/`.
 | Pool com RLS em vez de silo ou schema-per-tenant | [`adr/adr-001-tenancy.md`](adr/adr-001-tenancy.md) |
 | `tenant_id` dentro do JWT, nunca em parâmetro | [`adr/adr-002-identidade-tenant.md`](adr/adr-002-identidade-tenant.md) |
 | Trabalho pesado em fila com lote e quota | [`adr/adr-003-processamento-assincrono.md`](adr/adr-003-processamento-assincrono.md) |
+| Importação por fila, gravação pela API, CSV no payload, dois segredos | [`adr/adr-004-comunicacao-entre-servicos.md`](adr/adr-004-comunicacao-entre-servicos.md) |
 
 ---
 

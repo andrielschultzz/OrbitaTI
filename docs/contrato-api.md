@@ -1,8 +1,9 @@
 # Contrato HTTP da API de Contatos
 
-**Versão:** 1.2 — 08/11/2026, derivada do `CLAUDE.md` e dos blocos 2, 4, 5, 10, 12 e 14.
+**Versão:** 1.3 — 08/11/2026, derivada do `CLAUDE.md` e dos blocos 2, 4, 5, 10, 12 e 14.
 Mudanças da 1.1 (Fase 0 do bloco 13): `GET /planos/atual` virou `GET /planos` pública; dados extras de erro no nível de cima; lacuna dos papéis declarada.
 Mudanças da 1.2 (bloco 4): e-mail repetido no CSV vira erro de linha (o simulador mudou junto); separador decidido pelo cabeçalho; reimportação não apaga dado com célula vazia; respostas, limites e erros das rotas `/interno` definidos (seção 8). Nenhuma rota usada pelo Portal mudou de formato.
+Mudanças da 1.3 (bloco 7): headers `x-ratelimit-*` documentados na seção 1 (já eram enviados desde o bloco 5); decisões da seção 11 registradas no ADR-004. Nenhum formato mudou.
 
 ## Para que serve
 
@@ -30,7 +31,16 @@ Mudanças da 1.2 (bloco 4): e-mail repetido no CSV vira erro de linha (o simulad
 - **`x-request-id`.** Aceito na requisição ou gerado; sempre devolvido na resposta.
 - **Nenhuma requisição leva `tenant_id`** (regra 1). Propriedades extras no corpo são descartadas pelo Fastify, então um `tenant_id` no corpo é ignorado (T-ISO-06).
 - **Nenhuma resposta devolve `tenant_id`.** O Portal não precisa dele, e esconder reduz o que um atacante aprende. As exceções são o próprio token (assinado) e a exportação LGPD (dados do próprio tenant).
-- **Rate limit.** Vale para todas as rotas, menos `/saude`, `/planos` e `/interno/*` (bloco 5). Quando estoura, a resposta é 429 com header `Retry-After`.
+- **Rate limit.** Vale para todas as rotas, menos `/saude`, `/planos` e `/interno/*` (bloco 5). Quando estoura, a resposta é 429 com header `Retry-After` (segundos até poder tentar de novo).
+  - **Toda resposta de rota limitada** (não só o 429) traz também três headers, que o Portal pode usar para avisar antes de estourar:
+
+    | Header | Significado |
+    |---|---|
+    | `x-ratelimit-limit` | Limite da janela de 1 min que vale para esta requisição: 60 ou 600 por tenant (plano), 10 no login, `LIMITE_CADASTRO_POR_MIN` no cadastro |
+    | `x-ratelimit-remaining` | Quantas requisições ainda cabem nesta janela |
+    | `x-ratelimit-reset` | Segundos até a janela recomeçar |
+
+  - Com o Redis fora, o limite é ignorado (`skipOnError`) e esses headers podem não vir: o Portal não pode depender deles para funcionar.
   - `/saude` e `/planos` ficam fora porque só leem memória (o `planos.js`) ou fazem um `SELECT 1`: checar o limite, que é uma ida ao Redis, custaria mais que a própria resposta.
 
 ---
@@ -344,7 +354,7 @@ Mudanças da 1.2 (bloco 4): e-mail repetido no CSV vira erro de linha (o simulad
 
 ## 11. Decisões que este contrato introduz
 
-Registrar no ADR-004 (bloco 7) e saber defender:
+Registradas no [ADR-004](adr/adr-004-comunicacao-entre-servicos.md) (bloco 7). Saber defender:
 
 | Decisão | Por quê |
 |---|---|

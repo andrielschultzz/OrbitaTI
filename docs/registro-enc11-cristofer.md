@@ -40,8 +40,8 @@
 
 ## Verso — O Seu Produto (OrbitaTI)
 
-> **Foto do desenho:** `docs/desenho-servicos.jpg`
-> Versão digitada e completa, com as pendências até 29/10: [`servicos-rascunho.md`](servicos-rascunho.md)
+> **Foto do desenho:** A foto do desenho feito no encontro não foi preservada. O diagrama digitado abaixo é a versão do desenho.
+> Respostas resumidas: [`servicos-rascunho.md`](servicos-rascunho.md). O que mudou depois do encontro está na [Revisão de 08/11](#revisao-0811) no fim desta folha.
 
 ### 1. As caixas
 
@@ -108,3 +108,54 @@ O Row-Level Security do PostgreSQL (ADR-001): a política `tenant_id = current_s
 
 **d) Se o segundo serviço cair, o que o usuário ainda consegue fazer?**
 Tudo, menos importar contatos em massa: buscar, cadastrar e editar contatos continua na API; os jobs de importação ficam na fila e são processados quando o serviço voltar.
+
+---
+
+<a id="revisao-0811"></a>
+## Revisão de 08/11/2026 (Bloco 7)
+
+> O que está acima é o registro do encontro de 15/10 e não foi alterado. Esta seção diz o que o código da
+> Etapa 2 fez diferente, e por quê. As decisões estão no
+> [ADR-004](adr/adr-004-comunicacao-entre-servicos.md).
+
+```mermaid
+flowchart TB
+    nav["<b>Navegador</b><br/>Portal Web (React)"]
+
+    subgraph s1["Serviço 1 — porta de entrada"]
+        api["<b>API de Contatos</b><br/>[Node.js + Fastify]<br/>Autentica, resolve o tenant<br/>e grava os contatos"]
+    end
+
+    fila[["<b>Fila de Trabalhos</b><br/>[Redis + BullMQ]"]]
+
+    subgraph s2["Serviço 2"]
+        imp["<b>Serviço de Importação</b><br/>[Node.js worker]<br/>Valida o CSV, lotes de 100,<br/>pausa de 500 ms, concurrency 2"]
+    end
+
+    dbo[("<b>PostgreSQL — schema orbita</b><br/>contatos, usuários, importações<br/>RLS ativo")]
+    dbi[("<b>PostgreSQL — schema importacao</b><br/>execuções, erros de linha<br/>RLS ativo")]
+
+    nav -->|"① HTTPS + Bearer JWT<br/>(sem tenant_id como parâmetro)"| api
+    api -->|"② SQL, set_config app.tenant_id"| dbo
+    api -->|"③ publica job:<br/>tenant_id + importacao_id + CSV até 1 MB"| fila
+    fila -->|"④ worker consome o job"| imp
+    imp -->|"⑤ POST /interno/importacoes/:id/lotes<br/>token de serviço com tenant_id"| api
+    imp -->|"⑥ grava execução e erros de linha,<br/>set_config app.tenant_id"| dbi
+    nav -.->|"⑦ consulta o progresso<br/>(a API lê orbita.importacoes)"| api
+```
+
+| No desenho de 15/10 | Na Etapa 2 | Por quê |
+|---|---|---|
+| ③ e ⑥: CSV no armazenamento S3, job com `arquivo_id` | CSV de até 1 MB no payload do job; não há S3 | Arquivos pequenos e de vida curta não justificam mais um container ([ADR-004](adr/adr-004-comunicacao-entre-servicos.md)) |
+| ⑦: a Importação faz INSERT direto no schema `orbita` | A Importação chama a API (`POST /interno/.../lotes`); o papel `importacao_svc` não tem GRANT em `orbita` | Cada serviço é dono do seu schema; a regra do contato fica num lugar só |
+| ⑨: a API lê o progresso no schema `importacao` | O progresso fica em `orbita.importacoes`, atualizado pela API ao receber cada lote | A API nunca lê o schema de outro serviço |
+| `SET LOCAL app.tenant_id` | `SELECT set_config('app.tenant_id', $1, true)` | `SET LOCAL` não aceita parâmetro e obrigaria concatenar texto no SQL ([ADR-001](adr/adr-001-tenancy.md)) |
+| Política `tenant_id = current_setting('app.tenant_id')` | `tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid` | A versão original **dá erro** numa sessão sem tenant; com `NULLIF`, devolve 0 linhas sem erro (T-RLS-02) |
+
+**As quatro respostas, revisadas:**
+
+- **a)** O Serviço de Importação recebe, pela fila, um job com `tenant_id`, `importacao_id` e o próprio CSV (até 1 MB).
+- **b)** O tenant é descoberto no JWT, como respondido. Chega ao segundo serviço no payload do job e volta à API
+  no claim `tenant_id` de um token de serviço (segredo próprio, 60 s de vida).
+- **c)** É o RLS, como respondido, com a política corrigida acima: sem tenant definido, devolve 0 linhas e não dá erro.
+- **d)** Sem mudança. Provado pela `scripts/demo-degradacao.ps1` (T-RES-01 e T-RES-02).

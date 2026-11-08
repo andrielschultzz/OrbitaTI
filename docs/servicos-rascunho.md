@@ -1,6 +1,6 @@
 # Serviços — rascunho (OrbitaTI)
 
-**Foto do desenho:** `docs/desenho-servicos.jpg`
+**Foto do desenho:** a foto do desenho feito no encontro de 15/10 não foi preservada. O diagrama digitado está em [`registro-enc11-cristofer.md`](registro-enc11-cristofer.md) (Mermaid) e em [`registro-enc11-andriel.md`](registro-enc11-andriel.md) (texto); essa é a versão do desenho.
 
 **a) Qual é o segundo serviço, e o que ele recebe do primeiro?**
 O Serviço de Importação; recebe da API de Contatos um evento na fila com `tenant_id` e o arquivo CSV a importar.

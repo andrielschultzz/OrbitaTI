@@ -4,8 +4,9 @@
 |---|---|
 | **Status** | Aceito |
 | **Data** | 2026-09-24 |
-| **Decisores** | Andriel Schultz, Cristofer |
+| **Decisores** | Andriel Schultz, Cristofer Mateus Rutzen |
 | **Depende de** | [ADR-001 — Pool com RLS](adr-001-tenancy.md) |
+| **Revisão** | 08/11/2026 (Bloco 7): sem refresh token e sem denylist (decisão 9); exceção única do login; segredo próprio para o token de serviço. A decisão central não mudou |
 
 ---
 
@@ -54,7 +55,7 @@ Login  →  valida credenciais  →  emite JWT
 
 Requisição  →  Middleware de Autenticação   valida assinatura
             →  Resolvedor de Tenant         lê o claim, fixa no contexto
-            →  Acesso a Dados               SET LOCAL app.tenant_id
+            →  Acesso a Dados               set_config('app.tenant_id', $1, true)
             →  PostgreSQL                   RLS filtra
 ```
 
@@ -67,24 +68,44 @@ GET /api/tenants/{id}/contatos  ← proibido: não existe no produto
 
 **Regra de convivência:** nenhuma rota da API recebe `tenant_id`. Um teste automatizado varre a definição das rotas e falha a build se algum parâmetro com esse nome aparecer — a regra é verificada por máquina, não por revisão humana.
 
-**Prazo do token:** 15 minutos para o token de acesso, com refresh token de 7 dias. O refresh relê o vínculo do usuário no banco e emite um token novo, o que limita a 15 minutos a janela em que uma mudança de vínculo fica desatualizada.
+**Prazo do token:** 15 minutos para o token de acesso (`exp − iat = 900` s, T-AUTH-07), **sem refresh token**. Ao expirar, o usuário faz login de novo.
+
+> **Revisão de 08/11/2026 — refresh token e denylist fora do escopo do semestre (decisão 9).** A versão original deste ADR previa refresh token de 7 dias e uma denylist em Redis para cortar na hora o acesso de um usuário removido. As duas coisas foram **decididas fora do escopo**, não esquecidas:
+>
+> - **O que foi decidido:** token de acesso de 15 min, sem refresh e sem denylist.
+> - **Consequências aceitas:** (1) quem usa o sistema por mais de 15 min seguidos precisa entrar de novo; (2) usuário removido ou tenant cancelado mantém acesso por **até 15 min** com o token já emitido. O contrato da API já declara isso no `POST /conta/cancelamento` ([`../contrato-api.md`](../contrato-api.md), seção 9), e o Portal sai da conta logo depois de cancelar.
+> - **Por que é aceitável agora:** o Portal é usado em sessões curtas (a DevSolo abre o app entre dois atendimentos), e hoje não existe convite nem remoção de usuário (contrato, seção 10). A janela de 15 min só aparece no cancelamento da conta, feito pelo próprio admin.
+> - **Gatilhos de revisão:** reclamação de usuário sobre login frequente; primeiro cliente com rotatividade de equipe que exija corte imediato de acesso; o Portal passar a ter sessões longas de trabalho contínuo.
+
+**A exceção única: o login.** No login, a API ainda não sabe o tenant, e o RLS esconde a tabela `usuarios` de uma sessão sem tenant. A busca da credencial passa pela função `orbita.buscar_credencial(email)`, cujo dono é o papel `orbita_auth`: `BYPASSRLS`, sem login (`NOLOGIN`), dono só dessa função. Ela é a **única** exceção controlada, e é diferente da opção B rejeitada acima:
+
+- roda **só no login**, não em toda requisição;
+- devolve só o necessário para conferir a senha e montar o token (T-RLS-09);
+- o papel da API não lê `usuarios` fora dela (T-RLS-10), e nenhum papel de aplicação tem `BYPASSRLS` (T-RLS-14);
+- a função não fica executável por `PUBLIC` (T-RLS-19).
+
+O e-mail do usuário é único na base inteira (T-RLS-12), porque o login acha o usuário só pelo e-mail.
+
+**Token de serviço.** O Serviço de Importação chama a API com um token próprio, assinado com outro segredo (`JWT_SERVICO_SEGREDO`), que só abre as rotas `/interno` e vale 60 s. O tenant vai no claim `tenant_id` desse token, nunca em parâmetro. O porquê dos dois segredos está no [`adr-004-comunicacao-entre-servicos.md`](adr-004-comunicacao-entre-servicos.md).
 
 ## Consequências
 
 ### Positivas
 
-O isolamento não depende de disciplina de código: a informação perigosa não chega à camada de rota. Não há query extra por requisição, e não existe caminho privilegiado que contorne o RLS. Testar isolamento fica simples — basta autenticar como tenant A e tentar acessar um recurso conhecido do tenant B por ID direto, que é exatamente o que o cenário CQ-02 faz.
+O isolamento não depende de disciplina de código: a informação perigosa não chega à camada de rota. Não há query extra por requisição, e o único caminho que contorna o RLS é a função de login, que roda uma vez por sessão e não em toda requisição. Testar isolamento fica simples — basta autenticar como tenant A e tentar acessar um recurso conhecido do tenant B por ID direto, que é exatamente o que o cenário CQ-02 faz.
 
 ### Negativas
 
-**O claim fica congelado até o token expirar.** Se um usuário for removido do tenant, ele mantém acesso por no máximo 15 minutos. *Mitigação:* para remoção de usuário, a sessão vai para uma denylist em Redis consultada pelo middleware, o que corta o acesso na hora. A denylist é pequena — só sessões revogadas ainda não expiradas.
+**O claim fica congelado até o token expirar.** Se um usuário for removido do tenant, ou o tenant for cancelado, ele mantém acesso por no máximo 15 minutos. *Avaliação:* risco aceito (revisão de 08/11, acima). A denylist em Redis da versão original fica para quando um dos gatilhos de revisão acontecer.
 
 **Um usuário não pode pertencer a dois tenants com o mesmo token.** Um consultor que atenda duas empresas precisa de duas contas. *Avaliação:* aceitável para o mercado-alvo, onde o profissional tem um vínculo. Se virar demanda recorrente, o caminho é um seletor de tenant que emite token novo — não um token com múltiplos tenants.
 
-**A chave de assinatura vira ponto crítico.** Vazamento da chave permite forjar token de qualquer tenant. *Mitigação:* chave em gerenciador de segredos, fora do repositório, com rotação semestral.
+**A chave de assinatura vira ponto crítico.** Vazamento da chave permite forjar token de qualquer tenant. *Mitigação:* chave fora do repositório, com no mínimo 32 caracteres (a API recusa subir com menos). Hoje fica no `.env` (gerado por `npm run env`) e, no kind, num Secret do Kubernetes entregue só aos pods que a usam. Em produção: gerenciador de segredos, com rotação semestral. O token de serviço tem segredo próprio, então vazar o segredo do worker não permite forjar token de usuário.
 
 ## Referências
 
 - [ADR-001 — Pool com RLS](adr-001-tenancy.md)
+- [ADR-004 — Comunicação entre serviços](adr-004-comunicacao-entre-servicos.md) (token de serviço)
+- Contrato da API, seção 3 (token de sessão): [`../contrato-api.md`](../contrato-api.md)
 - Cenário CQ-02 — isolamento entre tenants: [`../atributos.md`](../atributos.md)
 - Nível 3 do C4, componentes Resolvedor de Tenant e Acesso a Dados: [`../02-arquitetura-c4.md`](../02-arquitetura-c4.md)
