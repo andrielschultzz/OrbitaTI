@@ -42,8 +42,8 @@ Se uma tarefa exigir contrariar um ADR, **pare e pergunte**. Não mude a decisã
 ## Estrutura
 
 ```
-services/api-contatos/   porta de entrada: auth, contatos, importações, rotas /interno; test/ = unitários sem stack (T-ISO-13)
-services/importacao/     worker BullMQ: lê o CSV do job, valida, envia lotes à API
+services/api-contatos/   porta de entrada: auth, contatos, importações, /planos, rotas /interno; test/ = unitários sem stack (T-ISO-13, T-OBS-03)
+services/importacao/     worker BullMQ: lê o CSV do job, valida, envia lotes à API; /saude interno na 3001 (sem porta publicada); test/ = unitários sem stack
 db/init/                 cria papéis do Postgres (roda só no primeiro boot)
 db/migrations/           schemas, tabelas, RLS, grants
 db/migrate.js            aplica migrações (imagem orbitati/migrate: db/Dockerfile, pacote próprio fora dos workspaces)
@@ -64,6 +64,7 @@ npm run env                           # gera o .env com senhas aleatórias; nunc
 docker compose up -d --build --wait   # sobe tudo (postgres, redis, migrate, api, importacao)
 docker compose run --rm migrate       # aplica migrações pendentes
 npm test                              # todos os testes (stack precisa estar no ar)
+TESTES_LENTOS=1 npm test              # inclui o T-IMP-13 (~25 s: prova a pausa de 500 ms); CI e antes de entrega
 npm run seed                          # tenants de demonstração DevSolo e TechConsult (idempotente; SEED_URL)
 powershell -ExecutionPolicy Bypass -File .\scripts\demo-isolamento.ps1 [-SemPausa] [-BaseUrl <url>]
 docker compose logs -f api-contatos importacao

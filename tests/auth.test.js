@@ -116,6 +116,6 @@ describe('rotas protegidas', () => {
     expect(comId.headers.get('x-request-id')).toBe('teste-auth-123');
     const semId = await chamar('GET', '/saude');
     expect(semId.headers.get('x-request-id')).toMatch(/^[0-9a-f-]{36}$/);
-    expect(semId.corpo).toEqual({ db: 'ok' });
+    expect(semId.corpo).toEqual({ db: 'ok', fila: 'ok' });
   });
 });

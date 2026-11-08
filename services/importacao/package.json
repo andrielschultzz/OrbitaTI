@@ -1,0 +1,21 @@
+{
+  "name": "@orbitati/importacao",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Worker de importação do OrbitaTI: lê o CSV do job, valida, grava erros de linha e envia os lotes à API (/interno).",
+  "main": "src/worker.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/worker.js"
+  },
+  "dependencies": {
+    "bullmq": "6.4.2",
+    "csv-parse": "7.0.3",
+    "ioredis": "6.0.0",
+    "pg": "8.23.1",
+    "pino": "10.4.0"
+  }
+}

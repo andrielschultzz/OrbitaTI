@@ -558,12 +558,15 @@ export function buildSimulador({
       const { colunas, sep, dados } = imp.csv;
       const idx = (nome) => colunas.indexOf(nome);
       const validas = [];
+      const emailsVistos = new Set(); // contrato 1.2: e-mail repetido no arquivo é erro de linha
       for (const linha of dados) {
         const campos = separarCampos(linha, sep);
         const valor = (nome) => (idx(nome) >= 0 ? campos[idx(nome)] || null : null);
         const nome = valor('nome');
         const email = valor('email')?.toLowerCase() ?? null;
         if (!nome || nome.length > 120 || !email || email.length > 254 || !EMAIL_VALIDO.test(email)) continue;
+        if (emailsVistos.has(email)) continue; // conta em linhas_invalidas, como no worker
+        emailsVistos.add(email);
         validas.push({
           nome,
           email,
@@ -581,9 +584,13 @@ export function buildSimulador({
       const aplicarLote = (numero) => {
         const agora = new Date().toISOString();
         for (const linha of validas.slice((numero - 1) * LOTE, numero * LOTE)) {
-          // upsert ON CONFLICT (tenant_id, email)
+          // upsert ON CONFLICT (tenant_id, email). Contrato 1.2 (COALESCE): célula vazia não apaga o que existia.
           const existente = contatosDoTenant(imp.tenant_id).find((c) => c.email === linha.email);
-          if (existente) Object.assign(existente, linha, { atualizado_em: agora });
+          if (existente) {
+            existente.nome = linha.nome;
+            for (const campo of ['telefone', 'empresa', 'observacao']) existente[campo] = linha[campo] ?? existente[campo];
+            existente.atualizado_em = agora;
+          }
           else {
             const c = {
               id: randomUUID(),

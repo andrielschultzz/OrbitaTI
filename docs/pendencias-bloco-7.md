@@ -109,3 +109,60 @@ O que fica para o Bloco 7 é o texto dos documentos da Etapa 1.
 | P7 | CQ-04: tamanho da amostra | Sonda a cada **15 s por 60 min = 240 amostras**. Conta: 60 × 60 ÷ 15 = 240. 1 falha = 0,42% (< 0,5%), então 1 falha aprova e 2 reprovam. **Limite:** 0 falhas em 240 não provam 99,5% (o limite de 95% de confiança é 3 ÷ 240 = 1,25%); a medida real é a sonda do mês em produção | Plano: T-CQ04-01, seção 4, L2; `prompts/bloco-11.md` | O `atributos.md` (CQ-04, "Como medir") fala em sonda a cada 60 s com apuração mensal: isso continua valendo para **produção**. Acrescentar que o ensaio local usa 15 s × 60 min e por quê |
 | P8 | CQ-05: RPO | O RPO de 15 min fica **declarado como limitação do ensaio local**: depende de arquivamento de WAL do banco gerenciado. O ensaio prova o procedimento e o RTO | Plano: T-CQ05-01, L3; `prompts/bloco-11.md` (já dizia isso) | Nota no CQ-05 do `atributos.md`: o RPO é garantido pelo provedor do banco gerenciado e não é ensaiado localmente |
 | P9 | Refresh token e denylist | **Fora do escopo do semestre.** Token de 15 min sem refresh; ao expirar, login de novo | Plano: L5 | C12: o ADR-002 declara a decisão, com gatilho de revisão |
+
+---
+
+## 7. Decisões, riscos e achados do bloco 4 (08/11/2026)
+
+### 7.1 Risco aceito: a API cai entre o COMMIT e o enfileiramento (I1)
+
+**Como o `POST /importacoes` funciona.** A API grava a importação (`na_fila`), faz COMMIT e **só depois**
+enfileira o job. Se enfileirar falhar, uma transação de compensação apaga o registro e a resposta é 503
+(T-IMP-22). A ordem é proposital: enfileirar **antes** do COMMIT abriria uma corrida, porque o worker
+poderia chamar `/interno/.../inicio` antes de a linha existir e receber 404.
+
+**O que sobra.** Se o processo da API **morrer** entre o COMMIT e o `add` (OOM, `kill`, o kind
+reiniciando o pod), a compensação nunca roda. A importação fica `na_fila` para sempre:
+- o Portal mostra "na fila" sem fim;
+- ela **ocupa uma vaga de importação simultânea**. No plano Individual são só 2: duas dessas e o tenant não
+  importa mais nada.
+
+O CSV estava só na memória da API e no payload do job que não chegou a existir. Não há como reenfileirar.
+
+**Por que é aceito agora.** A janela é de milissegundos (um `add` no Redis) e exige o processo morrer
+exatamente nela. Nenhum teste da Etapa 2 provoca isso.
+
+**Ideia de mitigação (não implementada).** Um "faxineiro" no próprio `POST /importacoes`, restrito ao
+tenant que está importando, antes de contar as simultâneas. Para cada importação `na_fila` do tenant com
+mais de 2 minutos, perguntar ao BullMQ se o job existe (`queue.getJob(importacao_id)`, possível porque
+`jobId = importacao_id`). Se não existir, marcar `falhou`.
+- Custo: uma consulta ao Redis por importação velha, só quando o tenant tenta importar de novo.
+- Não precisa de processo novo nem de cron.
+- O Portal passa a mostrar "falhou", e a vaga é liberada.
+- Os 2 minutos dão folga para um job que está de fato na fila esperando o worker (a `concurrency: 2` pode
+  segurar a fila por algumas dezenas de segundos em pico).
+
+Alternativa mais robusta, se o problema aparecer de verdade: **outbox**. O CSV é gravado no banco junto com
+o registro, e um processo separado enfileira e apaga. Isso tira o CSV do payload, o que contraria o ADR-004
+(até 1 MB no job), e por isso fica só como registro.
+
+**Falta no Bloco 7:** registrar o risco aceito e a ideia de mitigação no ADR-004, ao lado de C2.
+
+### 7.2 Decisões do contrato e do código (I2 a I7)
+
+| # | O quê | Decisão | Onde está |
+|---|---|---|---|
+| I2 | Lacunas da seção 8 do contrato | `inicio` e `falha` respondem `200 {"status": ...}`; `inicio` repetido mantém os primeiros números; lote depois de `falhou` → `{aplicado:false}`, sem aplicar; lote com `numero` além de `total_lotes` → 400 | `contrato-api.md` (seção 8); T-IMP-15 a 18 |
+| I3 | E-mail repetido no mesmo arquivo | Erro de linha ("e-mail repetido (já aparece na linha N)"), conta em `linhas_invalidas`. Sem isso, o upsert do lote daria 500 no PostgreSQL ("ON CONFLICT ... cannot affect row a second time"), e "X contatos importados" mentiria. O simulador mudou junto | `contrato-api.md` (seção 7); worker; `web/simulador/`; T-IMP-21 |
+| I4 | Separador do CSV | Decidido **uma vez**, pela linha do cabeçalho (o que aparecer mais vezes, `;` ou `,`). Aceitar os dois ao mesmo tempo quebraria `"Silva, João"` num arquivo do Excel em português | `contrato-api.md` (seção 7); API e worker (`csv.js`); T-IMP-03 |
+| I5 | Reimportar um contato | Upsert com `COALESCE`: célula vazia no CSV **não apaga** telefone, empresa ou observação que já existia; nome sempre atualiza | `contrato-api.md` (seção 7); rota `/lotes`; T-IMP-09 |
+| I6 | Token de serviço verificado com `fast-jwt` direto | O `namespace` do `@fastify/jwt` transforma `fastify.jwt` num mapa e quebraria o `app.jwt.sign()` do login. A API também recusa token de serviço com mais de 60 s de vida, mesmo assinado corretamente (um token longo que vaze em log valeria por muito tempo) | `autenticacao.js`; T-IMP-11 |
+| I7 | Contagem de linhas da API × do worker | A API conta linhas físicas não vazias (definição do contrato). Uma célula do Excel com quebra de linha **dentro de aspas** conta 2 na API e 1 no worker: o limite do plano fica um pouco mais conservador, e "X contatos importados" pode sair 1 ou 2 a mais. **Limitação declarada**; resolver exigiria a API fazer o parse completo | `api-contatos/src/csv.js` |
+
+### 7.3 Achados (I8 a I10)
+
+| # | Achado | O que foi feito | Falta |
+|---|---|---|---|
+| I8 | **BullMQ "envenenado" na partida.** Com `skipWaitingForReady` e `enableOfflineQueue: false`, a `Queue` manda um `INFO` ao Redis assim que é criada. A API sobe antes de a conexão ficar pronta, o `INFO` falha, e a `Queue` guarda essa falha para sempre: todo `add()` recebia "Stream isn't writeable" **com o Redis no ar**. Os testes unitários (fila simulada) não pegavam; o teste de integração pegou | A `Queue` passou a ser criada só quando a conexão já está `ready`, e é recriada se a inicialização falhar. Ensaio manual: Redis parado → 503; Redis de volta → 202 em 2 s, sem reiniciar a API | Citar no ADR-004 como exemplo de por que o teste de integração existe |
+| I9 | Jobs que sobrevivem ao tenant | Um job de um tenant já apagado ainda roda: o worker grava em `importacao.execucoes`, a API responde 404, o worker desiste sem gastar as 3 tentativas e o `/falha` também dá 404. Sobra uma linha órfã em `importacao.execucoes` | Bloco 14 (junto com B1): a exclusão de tenant precisa também remover os jobs pendentes do tenant na fila, ou apagar `importacao.*` **depois** que eles terminarem |
+| I10 | `concurrency: 2` e o lote máximo | A rota `/lotes` aceita até 5.000 contatos por lote (corpo até 4 MB), para o bloco 9 poder rodar "sem a mitigação" (`IMPORT_LOTE=5000`). O worker valida `IMPORT_LOTE` entre 1 e 5.000 | Entrar na tabela "Números do projeto" do `CLAUDE.md` junto com a `concurrency: 2` (observação de D2) |
