@@ -85,6 +85,13 @@ npm test                             # testes de integração (tests/), contra a
 docker compose run --rm migrate      # (opcional) aplica só as migrações pendentes
 ```
 
+**Os testes e o rate limit.** A API limita cadastros por IP (`LIMITE_CADASTRO_POR_MIN`, padrão 60), e a
+suíte faz mais de 50 por execução. Para não somar tudo num IP só, cada arquivo de teste manda um
+`X-Forwarded-For` fictício próprio (`203.0.113.N`, faixa de documentação da RFC 5737), como se fosse um
+escritório diferente atrás do Nginx. **Por isso a suíte depende de `TRUST_PROXY_SALTOS=1` no compose (o
+padrão):** com `0`, a API ignora o header, os cadastros voltam a somar no mesmo IP e aparecem 429 sem
+motivo aparente. Detalhes em `tests/apoio/api.js`.
+
 **Ordem de subida.** O `migrate` é um job: roda, aplica o que falta e sai. A `api-contatos` depende dele
 com `service_completed_successfully`, então só sobe depois que as migrações terminaram bem, e nunca roda
 contra um schema velho. Com essa dependência, o `up --wait` entende o `Exited (0)` do migrate como

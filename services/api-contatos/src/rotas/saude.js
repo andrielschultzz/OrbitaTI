@@ -14,7 +14,7 @@ const estado = { type: 'object', properties: { db: { type: 'string' }, fila: { t
 export default async function rotasSaude(app, { pool, fila }) {
   app.get(
     '/saude',
-    { config: { publica: true }, schema: { response: { 200: estado, 503: estado } } },
+    { config: { publica: true, rateLimit: false }, schema: { response: { 200: estado, 503: estado } } },
     async (req, rep) => {
       const [db, filaOk] = await Promise.all([
         pool.query('SELECT 1').then(

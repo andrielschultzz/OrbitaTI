@@ -24,7 +24,7 @@ const casos = [
 
 describe('T-OBS-03: GET /saude', () => {
   it.each(casos)('db $corpo.db + fila $corpo.fila -> $status', async ({ db, filaOk, status, corpo }) => {
-    const app = buildApp({ jwtSegredo: 'x'.repeat(32), jwtServicoSegredo: 'y'.repeat(32), pool: pool(db), fila: fila(filaOk), logger: false });
+    const app = buildApp({ jwtSegredo: 'x'.repeat(32), jwtServicoSegredo: 'y'.repeat(32), pool: pool(db), fila: fila(filaOk), limiteEmMemoria: true, logger: false });
     try {
       const r = await app.inject({ method: 'GET', url: '/saude' });
       expect(r.statusCode).toBe(status);
@@ -36,7 +36,7 @@ describe('T-OBS-03: GET /saude', () => {
 
   it('verificar() da fila que lança erro conta como fora, não como 500', async () => {
     const quebrada = { verificar: async () => { throw new Error('boom'); }, enfileirar: async () => {} };
-    const app = buildApp({ jwtSegredo: 'x'.repeat(32), jwtServicoSegredo: 'y'.repeat(32), pool: pool(true), fila: quebrada, logger: false });
+    const app = buildApp({ jwtSegredo: 'x'.repeat(32), jwtServicoSegredo: 'y'.repeat(32), pool: pool(true), fila: quebrada, limiteEmMemoria: true, logger: false });
     try {
       const r = await app.inject({ method: 'GET', url: '/saude' });
       expect(r.statusCode).toBe(200);

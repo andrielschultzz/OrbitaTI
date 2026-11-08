@@ -3,6 +3,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { hash, verify } from '@node-rs/argon2';
 import { withTenant } from '../db.js';
 import { ErroContrato, violouUnico } from '../erros.js';
+import { limiteCadastro, limiteLogin } from '../limite.js';
 
 // O padrão do @node-rs/argon2 já é Argon2id (memória 19 MiB, 2 passadas, 1 thread: a recomendação da
 // OWASP). O T-AUTH-08 confere o prefixo $argon2id$ no hash gravado.
@@ -19,13 +20,12 @@ const resposta = { type: 'object', properties: { token: { type: 'string' } } };
 
 const credencialInvalida = () => new ErroContrato(401, 'CREDENCIAIS_INVALIDAS');
 
-export default async function rotasAuth(app, { pool }) {
-  const publica = { publica: true };
-
+export default async function rotasAuth(app, { pool, limiteCadastroPorMin }) {
   app.post(
     '/auth/cadastro',
     {
-      config: publica,
+      // Por IP: um robô criando contas em série (cada conta nova é um tenant novo, com o limite zerado).
+      config: { publica: true, rateLimit: limiteCadastro(limiteCadastroPorMin) },
       schema: {
         body: {
           type: 'object',
@@ -73,7 +73,9 @@ export default async function rotasAuth(app, { pool }) {
         throw erro;
       }
 
-      req.log.info({ tenant_id: tenantId }, 'cadastro: tenant criado');
+      // Daqui em diante (inclusive o "request completed"), o log desta requisição sai com o tenant.
+      req.log = rep.log = req.log.child({ tenant_id: tenantId });
+      req.log.info('cadastro: tenant criado');
       const token = app.jwt.sign({ sub: usuarioId, tenant_id: tenantId, plano, papel: 'admin' });
       return rep.status(201).send({ token });
     },
@@ -82,7 +84,9 @@ export default async function rotasAuth(app, { pool }) {
   app.post(
     '/auth/login',
     {
-      config: publica,
+      // Por IP + e-mail: força bruta numa conta. Só IP bloquearia um escritório inteiro atrás do mesmo NAT;
+      // só e-mail deixaria qualquer um, de qualquer lugar, travar a conta de outra pessoa.
+      config: { publica: true, rateLimit: limiteLogin },
       schema: {
         body: {
           type: 'object',
@@ -93,7 +97,7 @@ export default async function rotasAuth(app, { pool }) {
         response: { 200: resposta },
       },
     },
-    async (req) => {
+    async (req, rep) => {
       const { senha } = req.body;
       // buscar_credencial é a ÚNICA exceção controlada ao RLS (regra 6): SECURITY DEFINER, dono orbita_auth.
       // É uma função, não uma tabela de tenant, e o login acontece antes de saber o tenant: sem withTenant.
@@ -108,6 +112,7 @@ export default async function rotasAuth(app, { pool }) {
       }
       if (!(await verify(cred.senha_hash, senha))) throw credencialInvalida();
 
+      req.log = rep.log = req.log.child({ tenant_id: cred.tenant_id });
       return { token: app.jwt.sign({ sub: cred.usuario_id, tenant_id: cred.tenant_id, plano: cred.plano, papel: cred.papel }) };
     },
   );

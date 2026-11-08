@@ -50,7 +50,7 @@ db/migrate.js            aplica migrações (imagem orbitati/migrate: db/Dockerf
 deploy/k8s/              manifests do kind
 tests/                   testes de integração (isolamento, RLS, importação); tests/apoio/ = funções comuns (não são testes)
 tests/carga/             k6 (CQ-01)
-scripts/                 seed.js (contas de demo), demo-isolamento.ps1 e utilitários
+scripts/                 seed.js (contas de demo), demo-isolamento.ps1, demo-degradacao.ps1 (T-RES), ensaio-reprocessamento.ps1 (T-IMP-14) e utilitários
 web/                     Portal Web: SPA React (src/), nginx (nginx/), Dockerfile, design system
 web/simulador/           simulador do contrato (docs/contrato-api.md) para o Portal rodar sem a API; fora da imagem
 web/e2e/                 E2E e capturas (Playwright); capturas em web/e2e/capturas/ (fora do git)
@@ -67,6 +67,8 @@ npm test                              # todos os testes (stack precisa estar no 
 TESTES_LENTOS=1 npm test              # inclui o T-IMP-13 (~25 s: prova a pausa de 500 ms); CI e antes de entrega
 npm run seed                          # tenants de demonstração DevSolo e TechConsult (idempotente; SEED_URL)
 powershell -ExecutionPolicy Bypass -File .\scripts\demo-isolamento.ps1 [-SemPausa] [-BaseUrl <url>]
+powershell -ExecutionPolicy Bypass -File .\scripts\demo-degradacao.ps1 [-SemPausa]   # para importacao e redis e religa (T-RES-01 a 05)
+powershell -ExecutionPolicy Bypass -File .\scripts\ensaio-reprocessamento.ps1 [-Quedas 2]  # T-IMP-14: mata o worker no meio de 5.000 linhas (1 a 3 min)
 docker compose logs -f api-contatos importacao
 docker compose down -v                # derruba e APAGA os dados (reset total)
 ```
@@ -137,7 +139,8 @@ Variáveis do Portal:
 | Rate limit por tenant | 60 req/min por usuário permitido no plano (individual 1 × 60 = 60 · equipe 10 × 60 = 600); 60/min = um clique por segundo em rajada |
 | Armazenamento do rate limit | **Redis** (a API roda com 2 réplicas no kind; em memória cada réplica contaria separado e o limite dobraria). Redis fora → `skipOnError: true`, o limite é ignorado em vez de derrubar a API |
 | Rate limit de login | 10 req/min por IP + e-mail |
-| Rate limit de cadastro | `LIMITE_CADASTRO_POR_MIN` por IP (padrão 60) |
+| Rate limit de cadastro | `LIMITE_CADASTRO_POR_MIN` por IP (padrão 60). A suíte manda um `X-Forwarded-For` 203.0.113.N por arquivo (`tests/apoio/api.js`) |
+| IP real atrás do proxy | `TRUST_PROXY_SALTOS` (padrão 1; kind com NodePort: 0), e só se a conexão vier de rede interna. O Fastify ≥ 5.12.1 ignora `trustProxy` numérico (`docs/pendencias-bloco-7.md`, J4 a J6) |
 | Token de acesso | 15 min |
 | CQ-01 | busca de outros tenants p95 < 800 ms durante importação de 500+ |
 | CQ-02 | 100% das tentativas cruzadas → 404 |

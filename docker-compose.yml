@@ -73,6 +73,10 @@ services:
       JWT_SERVICO_SEGREDO: ${JWT_SERVICO_SEGREDO:?defina JWT_SERVICO_SEGREDO no .env}
       # A API só ENFILEIRA importações. Redis fora: POST /importacoes -> 503 e /saude -> 200 {fila:"fora"}.
       REDIS_URL: ${REDIS_URL:?defina REDIS_URL no .env}
+      # Rate limit (bloco 5). 1 salto = o Nginx do Portal na frente; só vale para quem conecta pela rede
+      # interna. Seguro aqui porque a porta 3000 só existe em 127.0.0.1 (ver "ports" abaixo).
+      TRUST_PROXY_SALTOS: ${TRUST_PROXY_SALTOS:-1}
+      LIMITE_CADASTRO_POR_MIN: ${LIMITE_CADASTRO_POR_MIN:-60}
     # Só 127.0.0.1: os testes e o curl rodam no host. Na VM, só o Portal fica exposto; a API é
     # alcançada pelo proxy /api do nginx, dentro da rede do compose.
     ports:

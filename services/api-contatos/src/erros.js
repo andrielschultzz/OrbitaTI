@@ -14,7 +14,8 @@ export const MENSAGENS = {
   CSV_VAZIO: 'O arquivo não tem nenhum contato.',
   CSV_SEM_COLUNAS: 'A primeira linha precisa ter as colunas nome e email.',
   IMPORTACOES_SIMULTANEAS: 'Você já tem importações em andamento. Aguarde uma terminar.',
-  FILA_INDISPONIVEL: 'Importação indisponível no momento. O restante do sistema segue funcionando.',
+  LIMITE_REQUISICOES: 'Muitas ações seguidas. Tente de novo em instantes.',
+  FILA_INDISPONIVEL:'Importação indisponível no momento. O restante do sistema segue funcionando.',
 };
 
 /** Erro que já sabe virar resposta do contrato. Lance-o em qualquer rota; o setErrorHandler responde. */

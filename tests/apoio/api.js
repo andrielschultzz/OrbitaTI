@@ -2,9 +2,20 @@
 // Não termina em .test.js, então o Vitest não o executa sozinho.
 //
 // Pré-requisito: docker compose up -d --build --wait
+//
+// IP fictício por arquivo de teste (bloco 5). Toda chamada sai com X-Forwarded-For 203.0.113.N (faixa de
+// documentação, RFC 5737: nunca é um IP real), um N por arquivo. Cada arquivo faz o papel de um
+// "escritório" atrás do Nginx. Motivo: o limite de cadastro é por IP (LIMITE_CADASTRO_POR_MIN, padrão 60),
+// e a suíte inteira passa de 50 cadastros por execução. Num IP só, duas execuções seguidas chegavam a
+// 56 de 60. O padrão de produção NÃO muda por causa dos testes.
+//
+// A SUÍTE DEPENDE DE TRUST_PROXY_SALTOS=1 NO COMPOSE (o padrão). Com 0, a API ignora o header, os
+// cadastros de todos os arquivos voltam a somar no mesmo IP, e aparecem 429 sem motivo aparente.
 import { createHmac, randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
+import { basename } from 'node:path';
 import pg from 'pg';
+import { expect } from 'vitest';
 
 if (existsSync('.env')) process.loadEnvFile('.env');
 
@@ -16,14 +27,28 @@ let sequencia = 0;
 /** E-mail único por execução: os testes rodam de novo sem apagar o banco e sem colidir. */
 export const emailUnico = (nome = 'u') => `${nome}-${execucao}-${++sequencia}@teste.orbitati.dev`;
 
+// Posição do arquivo na lista ordenada de tests/*.test.js: N fixo por arquivo, sem colisão e sem tabela
+// para manter. Arquivo novo entra sozinho.
+const ARQUIVOS_DE_TESTE = readdirSync(new URL('..', import.meta.url)).filter((n) => n.endsWith('.test.js')).sort();
+
+/** 203.0.113.N do arquivo de teste em execução (ou null fora de um teste). */
+export function ipDoArquivo() {
+  const caminho = expect.getState().testPath;
+  const posicao = caminho ? ARQUIVOS_DE_TESTE.indexOf(basename(caminho)) : -1;
+  return posicao === -1 ? null : `203.0.113.${posicao + 1}`;
+}
+
 /**
  * Chama a API e devolve {status, corpo, headers}. corpo = JSON, ou null quando não há corpo (204).
  * `corpo` vai como JSON; `csv` vai como texto com Content-Type `tipo` (POST /importacoes).
+ * `headers` sobrescreve os padrões (inclusive o X-Forwarded-For do arquivo, para o T-RL-06).
  */
 export async function chamar(metodo, caminho, { token, corpo, csv, tipo = 'text/csv', headers = {} } = {}) {
+  const ip = ipDoArquivo();
   const resposta = await fetch(`${BASE}${caminho}`, {
     method: metodo,
     headers: {
+      ...(ip ? { 'x-forwarded-for': ip } : {}),
       ...(corpo !== undefined ? { 'content-type': 'application/json' } : {}),
       ...(csv !== undefined ? { 'content-type': tipo } : {}),
       ...(token ? { authorization: `Bearer ${token}` } : {}),
