@@ -11,8 +11,12 @@ import Fastify from 'fastify';
 import autenticacao from './autenticacao.js';
 import { criarPool } from './db.js';
 import { ErroContrato, MENSAGENS, camposDaValidacao } from './erros.js';
+import { criarFila } from './fila.js';
 import rotasAuth from './rotas/auth.js';
 import rotasContatos from './rotas/contatos.js';
+import rotasImportacoes from './rotas/importacoes.js';
+import rotasInterno from './rotas/interno.js';
+import rotasPlanos from './rotas/planos.js';
 import rotasSaude from './rotas/saude.js';
 
 // x-request-id que vem de fora só é aceito se for curto e "comportado": ele vai para todo log, e um
@@ -22,8 +26,12 @@ const REQUEST_ID_VALIDO = /^[A-Za-z0-9._-]{1,128}$/;
 /**
  * @param {object} [opcoes]
  * @param {string} [opcoes.jwtSegredo]  segredo HS256 dos tokens de usuário (padrão: env JWT_SEGREDO)
+ * @param {string} [opcoes.jwtServicoSegredo]  segredo do token de serviço (padrão: env JWT_SERVICO_SEGREDO)
  * @param {import('pg').Pool} [opcoes.pool]  pool pronto (senão cria um com opcoes.databaseUrl / env DATABASE_URL_API)
  * @param {string} [opcoes.databaseUrl]
+ * @param {{enfileirar: Function, verificar: Function, fechar?: Function}} [opcoes.fila]  fila pronta
+ *        (senão cria a do BullMQ com opcoes.redisUrl / env REDIS_URL). Os testes passam uma simulada.
+ * @param {string} [opcoes.redisUrl]
  * @param {object|boolean} [opcoes.logger]
  */
 export function buildApp(opcoes = {}) {
@@ -33,6 +41,13 @@ export function buildApp(opcoes = {}) {
   if (!jwtSegredo || jwtSegredo.length < 32) {
     throw new Error('JWT_SEGREDO precisa ter pelo menos 32 caracteres.');
   }
+  // Segredo do token de serviço (worker -> /interno, regra 7). Mesmas exigências, e DIFERENTE do de
+  // usuário: se fossem iguais, vazar um seria vazar os dois.
+  const jwtServicoSegredo = opcoes.jwtServicoSegredo ?? process.env.JWT_SERVICO_SEGREDO;
+  if (!jwtServicoSegredo || jwtServicoSegredo.length < 32) {
+    throw new Error('JWT_SERVICO_SEGREDO precisa ter pelo menos 32 caracteres.');
+  }
+  if (jwtServicoSegredo === jwtSegredo) throw new Error('JWT_SERVICO_SEGREDO precisa ser diferente de JWT_SEGREDO.');
 
   const app = Fastify({
     logger: opcoes.logger ?? { level: process.env.LOG_NIVEL ?? 'info' },
@@ -50,6 +65,11 @@ export function buildApp(opcoes = {}) {
   const criouPool = !opcoes.pool;
   const pool = opcoes.pool ?? criarPool(opcoes.databaseUrl ?? process.env.DATABASE_URL_API);
   if (criouPool) app.addHook('onClose', async () => pool.end());
+
+  // Mesma ideia do pool: quem recebe a fila pronta (teste) cuida de fechá-la.
+  const criouFila = !opcoes.fila;
+  const fila = opcoes.fila ?? criarFila(opcoes.redisUrl ?? process.env.REDIS_URL);
+  if (criouFila) app.addHook('onClose', async () => fila.fechar());
 
   // Todo response leva o x-request-id: é o "código" que o usuário informa no suporte (500 ERRO_INTERNO).
   app.addHook('onSend', async (req, rep) => {
@@ -109,10 +129,13 @@ export function buildApp(opcoes = {}) {
     rep.status(404).send({ erro: 'Rota não encontrada.', codigo: 'NAO_ENCONTRADO' });
   });
 
-  app.register(autenticacao, { segredo: jwtSegredo });
-  app.register(rotasSaude, { pool });
+  app.register(autenticacao, { segredo: jwtSegredo, servicoSegredo: jwtServicoSegredo });
+  app.register(rotasSaude, { pool, fila });
+  app.register(rotasPlanos);
   app.register(rotasAuth, { pool });
   app.register(rotasContatos, { pool });
+  app.register(rotasImportacoes, { pool, fila });
+  app.register(rotasInterno, { pool });
 
   return app;
 }

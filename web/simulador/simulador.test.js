@@ -162,6 +162,25 @@ describe('simulador do contrato', () => {
     expect((await app.inject({ method: 'GET', url, headers: outro })).statusCode).toBe(404);
   });
 
+  it('importação (contrato 1.2): e-mail repetido no arquivo é linha inválida; célula vazia não apaga dado', async () => {
+    const h = await entrar();
+    const importar = async (texto) => {
+      const r = await app.inject({ method: 'POST', url: '/importacoes', headers: { ...h, 'content-type': 'text/csv' }, payload: texto });
+      expect(r.statusCode).toBe(202);
+      await new Promise((ok) => setTimeout(ok, 1300));
+      return (await app.inject({ method: 'GET', url: `/importacoes/${r.json().importacao_id}`, headers: h })).json();
+    };
+    const contato = async () =>
+      (await app.inject({ method: 'GET', url: '/contatos?busca=dup%40sim.dev', headers: h })).json().itens;
+
+    const primeira = await importar('nome;email;telefone\nAna;dup@sim.dev;51 1111\nAna Repetida;DUP@sim.dev;51 2222');
+    expect(primeira).toMatchObject({ status: 'concluida', total_linhas: 2, linhas_invalidas: 1, lotes_aplicados: 1 });
+    expect(await contato()).toMatchObject([{ nome: 'Ana', telefone: '51 1111' }]); // a primeira ocorrência vale
+
+    await importar('nome;email;telefone\nAna Atualizada;dup@sim.dev;');
+    expect(await contato()).toMatchObject([{ nome: 'Ana Atualizada', telefone: '51 1111' }]); // não apagou
+  });
+
   it('cenários de falha: fila fora (503) e rate limit com Retry-After', async () => {
     await app.close();
     app = buildSimulador({ fila: 'fora', limiteRpm: 3 });

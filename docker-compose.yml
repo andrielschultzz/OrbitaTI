@@ -1,5 +1,5 @@
-# OrbitaTI: stack local. postgres, redis, migrate (job) e api-contatos.
-# O worker (bloco 4) e o Portal (bloco 13, Fase 6) entram aqui depois.
+# OrbitaTI: stack local. postgres, redis, migrate (job), api-contatos e importacao (worker).
+# O Portal (bloco 13, Fase 6) entra aqui depois.
 #
 #   docker compose up -d --build --wait   sobe tudo; o migrate roda e SAI antes de a API subir
 #   docker compose run --rm migrate       aplica só as migrações pendentes
@@ -69,6 +69,10 @@ services:
     environment:
       DATABASE_URL_API: ${DATABASE_URL_API:?defina DATABASE_URL_API no .env}
       JWT_SEGREDO: ${JWT_SEGREDO:?defina JWT_SEGREDO no .env}
+      # Segredo separado: só o token de serviço do worker (rotas /interno, regra 7).
+      JWT_SERVICO_SEGREDO: ${JWT_SERVICO_SEGREDO:?defina JWT_SERVICO_SEGREDO no .env}
+      # A API só ENFILEIRA importações. Redis fora: POST /importacoes -> 503 e /saude -> 200 {fila:"fora"}.
+      REDIS_URL: ${REDIS_URL:?defina REDIS_URL no .env}
     # Só 127.0.0.1: os testes e o curl rodam no host. Na VM, só o Portal fica exposto; a API é
     # alcançada pelo proxy /api do nginx, dentro da rede do compose.
     ports:
@@ -79,8 +83,11 @@ services:
       # Só sobe depois que as migrações terminaram com sucesso: nunca roda contra um schema velho.
       migrate:
         condition: service_completed_successfully
+      # Só ordena a PARTIDA (sobe com a fila pronta). Se o Redis cair depois, a API continua no ar.
+      redis:
+        condition: service_healthy
     healthcheck:
-      # wget vem no Alpine (busybox). /saude responde 503 com o banco fora, e o wget falha: unhealthy.
+      # wget vem no Alpine (busybox). /saude responde 503 só com o banco fora (com a fila fora é 200).
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/saude"]
       interval: 5s
       timeout: 3s
@@ -89,6 +96,48 @@ services:
     restart: unless-stopped
     # Endurecimento: sistema de arquivos só leitura (a API não grava nada), com /tmp em memória para
     # biblioteca que precise de arquivo temporário; nenhuma capability do Linux; sem escalar privilégio.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+
+  importacao:
+    # Worker BullMQ (bloco 4). Lê o CSV do job, grava erros de linha no schema importacao e envia os
+    # contatos à API pelas rotas /interno, com token de serviço. Nunca toca o schema orbita (regra 7).
+    build:
+      context: .
+      dockerfile: services/importacao/Dockerfile
+    image: orbitati/importacao:0.1.0
+    environment:
+      DATABASE_URL_IMPORTACAO: ${DATABASE_URL_IMPORTACAO:?defina DATABASE_URL_IMPORTACAO no .env}
+      REDIS_URL: ${REDIS_URL:?defina REDIS_URL no .env}
+      JWT_SERVICO_SEGREDO: ${JWT_SERVICO_SEGREDO:?defina JWT_SERVICO_SEGREDO no .env}
+      API_URL_INTERNA: ${API_URL_INTERNA:?defina API_URL_INTERNA no .env}
+      # Lote e pausa do ADR-003. O teste de carga (bloco 9) troca para comparar com e sem a mitigação.
+      IMPORT_LOTE: ${IMPORT_LOTE:-100}
+      IMPORT_PAUSA_MS: ${IMPORT_PAUSA_MS:-500}
+    # Sem "ports": nenhuma porta publicada. O /saude (3001) só é usado pelo healthcheck, de dentro.
+    depends_on:
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      # O worker grava pela API: sem ela no ar, todo lote falharia.
+      api-contatos:
+        condition: service_healthy
+    healthcheck:
+      # 200 só com banco e fila ok (sem um dos dois o worker não trabalha).
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3001/saude"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+    # Tempo para terminar o job em andamento no SIGTERM. Se passar, o job volta à fila e recomeça
+    # sem duplicar nada (idempotência, T-IMP-14).
+    stop_grace_period: 30s
     read_only: true
     tmpfs:
       - /tmp

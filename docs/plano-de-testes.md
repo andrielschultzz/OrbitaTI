@@ -2,7 +2,7 @@
 
 **Unidade:** Andriel Schultz e Cristofer Mateus Rutzen
 **Escrito em:** 29/10/2026, antes do código da Etapa 2
-**Status:** todos os casos estão **planejados**. Cada bloco que automatiza um caso troca o status dele neste arquivo.
+**Status:** cada bloco que automatiza um caso troca o status dele neste arquivo (blocos 1 a 4 automatizados).
 
 Este documento é a especificação dos testes. Os arquivos de teste citam os IDs daqui
 (ex.: `it('T-RLS-03 conexão reaproveitada sem tenant vê 0 linhas', ...)`), e o ID nunca muda.
@@ -96,11 +96,11 @@ A suíte é uma **tabela de rotas** (método, caminho) percorrida em laço: rota
 | T-ISO-05 | 404 cruzado é indistinguível de "não existe" | CQ-02 ("sem confirmar a existência") | idem | A faz `GET` no id de B e num UUID aleatório | Mesmo status e mesmo corpo nas duas respostas | Integração | Vitest | 3 | automatizado |
 | T-ISO-06 | `tenant_id` no corpo é ignorado | Regra 1; ADR-002 | — | A faz `POST /contatos` com `{"nome":"x","tenant_id":"<B>"}` | Contato criado em A (o Fastify descarta a propriedade extra); B não o vê | Integração | Vitest | 3 | automatizado |
 | T-ISO-07 | `tenant_id` na query string é ignorado | Regra 1; ADR-002 | contatos em A e B | A faz `GET /contatos?tenant_id=<B>` | Só contatos de A | Integração | Vitest | 3 | automatizado |
-| T-ISO-08 | Importação de outro tenant | CQ-02; regra 5 | importação de B | A faz `GET /importacoes/:idB` | 404 | Integração | Vitest | 4 | planejado |
-| T-ISO-09 | Token de serviço de A não grava lote em importação de B | Regra 7; CQ-02 | idem | Token de serviço com `tenant_id = A` em `POST /interno/importacoes/:idB/lotes` | 404; nenhum contato novo em A nem em B | Integração | Vitest | 4 | planejado |
+| T-ISO-08 | Importação de outro tenant | CQ-02; regra 5 | importação de B | A faz `GET /importacoes/:idB` | 404 | Integração | Vitest | 4 | automatizado |
+| T-ISO-09 | Token de serviço de A não grava lote em importação de B | Regra 7; CQ-02 | idem | Token de serviço com `tenant_id = A` em `POST /interno/importacoes/:idB/lotes` | 404; nenhum contato novo em A nem em B | Integração | Vitest | 4 | automatizado |
 | T-ISO-10 | JWT adulterado | ADR-002 | token de A | Trocar o `tenant_id` do payload para B **sem reassinar** e chamar `GET /contatos` | 401 | Integração | Vitest | 3 | automatizado |
 | T-ISO-11 | JWT expirado | ADR-002 | — | Token assinado com `JWT_SEGREDO` e `exp` no passado | 401 | Integração | Vitest | 3 | automatizado |
-| T-ISO-12 | Token de serviço não serve em rota de usuário | Regra 7 (dois segredos) | — | Token de serviço válido em `GET /contatos` | 401 | Integração | Vitest | 4 | planejado |
+| T-ISO-12 | Token de serviço não serve em rota de usuário | Regra 7 (dois segredos) | — | Token de serviço válido em `GET /contatos` | 401 | Integração | Vitest | 4 | automatizado |
 | T-ISO-13 | Nenhuma rota aceita `tenant_id` | Regra 1; ADR-002 | — | `buildApp()` + hook `onRoute`: procurar "tenant" no caminho e nos nomes de propriedade dos schemas de params, querystring e corpo. Contra-teste: registrar rotas proibidas e conferir que o verificador acusa (`services/api-contatos/test/rotas-sem-tenant.test.js`) | Nenhuma ocorrência; o teste falha se aparecer | Unitário | Vitest | 3 | automatizado |
 | T-ISO-14 | A regra acima bloqueia a build | CQ-02 ("build falha se a suíte falhar") | CI ativo | Branch descartável com rota `/tenants/:tenant_id/contatos`; push | Workflow vermelho; o branch é apagado | Integração contínua | GitHub Actions | 8 | planejado |
 | T-ISO-15 | Toda rota com dado de tenant está na tabela da suíte | CQ-02 ("100% das rotas cobertas") | — | (a) As rotas com `config.publica` são exatamente as de uma lista fixa (hoje `GET /saude`, `POST /auth/cadastro`, `POST /auth/login`; os blocos 4, 10 e 14 acrescentam `/planos`, `/auth/confirmar` e `/conta/exportacao/arquivo`). (b) As demais rotas registradas no `onRoute` (sem HEAD) são exatamente as da tabela de `isolamento.test.js` | Rota fora da tabela, rota fantasma na tabela ou rota pública não prevista → falha. A lista fixa impede que marcar uma rota como pública seja um jeito de escapar da autenticação e da suíte ao mesmo tempo | Unitário | Vitest | 3 | automatizado |
@@ -111,7 +111,7 @@ A suíte é uma **tabela de rotas** (método, caminho) percorrida em laço: rota
 
 **Cobertura de rotas na Etapa 2.** O [`atributos.md`](atributos.md#cq-02) dimensiona **24 casos** =
 12 rotas previstas no C4 × 2 (leitura e escrita cruzadas). Essa conta vale para o produto completo.
-Na Etapa 2 existem 8 rotas com dado de tenant, e cada uma tem pelo menos um caso para a operação que faz:
+Na Etapa 2 existem 10 rotas com dado de tenant, e cada uma tem pelo menos um caso para a operação que faz:
 
 | Rota | Leitura cruzada | Escrita cruzada |
 |---|---|---|
@@ -122,9 +122,12 @@ Na Etapa 2 existem 8 rotas com dado de tenant, e cada uma tem pelo menos um caso
 | `DELETE /contatos/:id` | — | T-ISO-03 |
 | `POST /importacoes` | — | T-IMP-02 |
 | `GET /importacoes/:id` | T-ISO-08 | — |
-| `POST /interno/importacoes/:id/lotes` | — | T-ISO-09 |
+| `POST /interno/importacoes/:id/inicio` | — | T-ISO-09 (token de serviço de A) |
+| `POST /interno/importacoes/:id/lotes` | — | T-ISO-09 (token de serviço de A) |
+| `POST /interno/importacoes/:id/falha` | — | T-ISO-09 (token de serviço de A) |
 
-8 de 8 rotas cobertas = **100%**, com 10 casos de rota mais 3 de token (T-ISO-10 a 12). A conta de 24 volta a
+10 de 10 rotas cobertas = **100%**, com 12 casos de rota mais 3 de token (T-ISO-10 a 12). As 3 rotas `/interno` são
+atacadas com o **token de serviço** de A (regra 7), que é o caminho que um worker comprometido teria. A conta de 24 volta a
 valer quando as 12 rotas do C4 existirem. O T-ISO-15 garante que nenhuma rota nova fique de fora.
 
 ### 2.3 Autenticação — bloco 2, `tests/auth.test.js`
@@ -153,20 +156,28 @@ valer quando as 12 rotas do C4 existirem. O T-ISO-15 garante que nenhuma rota no
 
 | ID | O que verifica | Origem | Pré-condição | Passos | Resultado esperado | Tipo | Ferramenta | Bloco | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| T-IMP-01 | CSV válido com algumas linhas inválidas | ADR-003; regra 8 | tenant equipe | `POST /importacoes` com 250 linhas válidas + 3 inválidas; consultar `GET /importacoes/:id` até concluir | 202 `{importacao_id}`; `concluida`; `total_lotes = 3` (⌈250 ÷ 100⌉); 250 contatos; 3 linhas em `importacao.erros_linha` | Integração | Vitest | 4 | planejado |
-| T-IMP-02 | Contatos importados ficam só no tenant que importou | CQ-02 | T-IMP-01 concluído | Outro tenant lista contatos | Nenhum dos 250 aparece | Integração | Vitest | 4 | planejado |
-| T-IMP-03 | CSV do Excel em português | Bloco 4, item 6 | — | CSV com `;` e BOM UTF-8 | Mesmo resultado de um CSV com `,` | Integração | Vitest | 4 | planejado |
-| T-IMP-04 | Linha sem e-mail ou com e-mail inválido é erro de linha | D3; regra 8 | — | CSV com linha sem e-mail, linha com e-mail inválido e linha com `Fulano@X.com` | 2 erros de linha; o terceiro gravado como `fulano@x.com` | Integração | Vitest | 4 | planejado |
-| T-IMP-05 | Limite do plano individual | `planos.js` (100) | tenant individual | CSV de 100 linhas; depois de 101 | 100 → 202; 101 → 422 | Integração | Vitest | 4 | planejado |
-| T-IMP-06 | Limite do plano equipe | `planos.js` (5.000) | tenant equipe | CSV de 5.000 linhas curtas; depois de 5.001 | 5.000 → 202; 5.001 → 422. As linhas têm ~50 bytes (5.001 × 50 ≈ 250 KB), para o 422 não ser confundido com o 413 | Integração | Vitest | 4 | planejado |
-| T-IMP-07 | Limite de 1 MB no corpo | Números do projeto | — | Corpo com 1.048.577 bytes (1 MB + 1 byte) | 413; nada gravado em `orbita.importacoes` | Integração | Vitest | 4 | planejado |
-| T-IMP-08 | Importações simultâneas por plano | `planos.js` (2 / 5) | Individual com 2 importações `na_fila` e equipe com 5, criadas **direto no banco** (fixture determinística) | `POST /importacoes` em cada tenant | Individual → 429; equipe → 429; outro tenant individual sem importações → 202 | Integração | Vitest + pg | 4 | planejado |
-| T-IMP-09 | Mesmo lote enviado duas vezes | Regra 8 | importação de A | Mesmo `(importacao_id, numero)` 2× na rota interna, com token de serviço | 1º `{aplicado:true}`; 2º `{aplicado:false}`; contatos e `lotes_aplicados` não mudam | Integração | Vitest | 4 | planejado |
-| T-IMP-10 | Rota interna recusa JWT de usuário | Regra 7 | token de usuário de A | `POST /interno/importacoes/:id/lotes` | 401 | Integração | Vitest | 4 | planejado |
-| T-IMP-11 | Token de serviço com claim errado ou vencido | Regra 7 | — | Tokens com `aud` ≠ `api-contatos`; `iss` ≠ `importacao`; `exp` no passado; assinado com `JWT_SEGREDO` | 401 nos quatro | Integração | Vitest | 4 | planejado |
-| T-IMP-12 | Progresso e transições de status | Bloco 4, item 3 | — | Consultar `GET /importacoes/:id` durante uma importação de equipe | `na_fila` → `processando` → `concluida`; no fim `lotes_aplicados = total_lotes` | Integração | Vitest | 4 | planejado |
-| T-IMP-13 | A pausa de 500 ms existe de verdade | ADR-003; CQ-01 | `IMPORT_PAUSA_MS=500` | Importar 5.000 linhas (50 lotes) e medir `concluida_em − criado_em` | ≥ 24,5 s (49 pausas entre 50 lotes × 0,5 s). Teste lento: marcar para rodar só no CI e antes de entrega | Integração | Vitest | 4 | planejado |
+| T-IMP-01 | CSV válido com algumas linhas inválidas | ADR-003; regra 8 | tenant equipe | `POST /importacoes` com 250 linhas válidas + 3 inválidas; consultar `GET /importacoes/:id` até concluir | 202 `{importacao_id}`; `concluida`; `total_lotes = 3` (⌈250 ÷ 100⌉); 250 contatos; 3 linhas em `importacao.erros_linha` | Integração | Vitest | 4 | automatizado |
+| T-IMP-02 | Contatos importados ficam só no tenant que importou | CQ-02 | T-IMP-01 concluído | Outro tenant lista contatos | Nenhum dos 250 aparece | Integração | Vitest | 4 | automatizado |
+| T-IMP-03 | CSV do Excel em português | Bloco 4, item 6 | — | CSV com `;` e BOM UTF-8 | Mesmo resultado de um CSV com `,` | Integração | Vitest | 4 | automatizado |
+| T-IMP-04 | Linha sem e-mail ou com e-mail inválido é erro de linha | D3; regra 8 | — | CSV com linha sem e-mail, linha com e-mail inválido e linha com `Fulano@X.com` | 2 erros de linha; o terceiro gravado como `fulano@x.com` | Integração | Vitest | 4 | automatizado |
+| T-IMP-05 | Limite do plano individual | `planos.js` (100) | tenant individual | CSV de 100 linhas; depois de 101 | 100 → 202; 101 → 422 | Integração | Vitest | 4 | automatizado |
+| T-IMP-06 | Limite do plano equipe | `planos.js` (5.000) | tenant equipe | CSV de 5.000 linhas curtas; depois de 5.001 | 5.000 → 202; 5.001 → 422. As linhas têm ~50 bytes (5.001 × 50 ≈ 250 KB), para o 422 não ser confundido com o 413 | Integração | Vitest | 4 | automatizado |
+| T-IMP-07 | Limite de 1 MB no corpo | Números do projeto | — | Corpo com 1.048.577 bytes (1 MB + 1 byte) | 413; nada gravado em `orbita.importacoes` | Integração | Vitest | 4 | automatizado |
+| T-IMP-08 | Importações simultâneas por plano | `planos.js` (2 / 5) | Individual com 2 importações `na_fila` e equipe com 5, criadas **direto no banco** (fixture determinística) | `POST /importacoes` em cada tenant | Individual → 429; equipe → 429; outro tenant individual sem importações → 202 | Integração | Vitest + pg | 4 | automatizado |
+| T-IMP-09 | Mesmo lote enviado duas vezes | Regra 8 | importação de A | Mesmo `(importacao_id, numero)` 2× na rota interna, com token de serviço | 1º `{aplicado:true}`; 2º `{aplicado:false}`; contatos e `lotes_aplicados` não mudam | Integração | Vitest | 4 | automatizado |
+| T-IMP-10 | Rota interna recusa JWT de usuário | Regra 7 | token de usuário de A | `POST /interno/importacoes/:id/lotes` | 401 | Integração | Vitest | 4 | automatizado |
+| T-IMP-11 | Token de serviço com claim errado ou vencido | Regra 7 | — | Tokens com `aud` ≠ `api-contatos`; `iss` ≠ `importacao`; `exp` no passado; assinado com `JWT_SEGREDO` | 401 nos quatro | Integração | Vitest | 4 | automatizado |
+| T-IMP-12 | Progresso e transições de status | Bloco 4, item 3 | — | Consultar `GET /importacoes/:id` durante uma importação de equipe | `na_fila` → `processando` → `concluida`; no fim `lotes_aplicados = total_lotes` | Integração | Vitest | 4 | automatizado |
+| T-IMP-13 | A pausa de 500 ms existe de verdade | ADR-003; CQ-01 | `IMPORT_PAUSA_MS=500` | Importar 5.000 linhas (50 lotes) e medir `concluida_em − criado_em` | ≥ 24,5 s (49 pausas entre 50 lotes × 0,5 s). Teste lento: marcar para rodar só no CI e antes de entrega | Integração | Vitest | 4 | automatizado (só com `TESTES_LENTOS=1`) |
 | T-IMP-14 | Job reprocessado não duplica contatos | Regra 8 (`jobId`, lotes, upsert) | importação de 5.000 linhas em andamento | `docker compose kill importacao` no meio; `docker compose up -d importacao` | `concluida`; exatamente 5.000 contatos; `lotes_aplicados = 50` | Ensaio operacional | PowerShell | 5 | planejado |
+| T-IMP-15 | CSV todo inválido conclui na hora | Contrato, seção 8 (`inicio`) | importação `na_fila` criada no banco | Token de serviço: `inicio {total_lotes: 0, linhas_invalidas: 4}` | `{status:"concluida"}`; `total_lotes = 0`, `concluida_em` preenchido | Integração | Vitest | 4 | automatizado |
+| T-IMP-16 | `inicio` repetido não muda nada | Contrato, seção 8 (retry do BullMQ) | idem | `inicio {1, 3}` e depois `inicio {9, 0}` | Continua `total_lotes = 1`, `linhas_invalidas = 3`: vale o primeiro | Integração | Vitest | 4 | automatizado |
+| T-IMP-17 | `falhou` não volta atrás | Contrato, seção 8 | importação `processando` | `falha`; depois um lote e um `inicio` | `{status:"falhou"}`; lote → `{aplicado:false}` e nenhum contato gravado; `inicio` → `{status:"falhou"}` | Integração | Vitest | 4 | automatizado |
+| T-IMP-18 | `falha` não desfaz uma importação concluída | Contrato, seção 8 | importação `concluida` | `falha` | `{status:"concluida"}` | Integração | Vitest | 4 | automatizado |
+| T-IMP-19 | Linhas inválidas não entram na conta dos lotes | Bloco 4, item 11 | tenant equipe (103 linhas passam do limite do Individual) | CSV com 100 válidas + 3 inválidas, ponta a ponta | `concluida`; `total_lotes = 1`; `linhas_invalidas = 3` | Integração | Vitest | 4 | automatizado |
+| T-IMP-20 | CSV só com linhas inválidas | Bloco 4, item 11 | tenant equipe | CSV com 3 linhas inválidas, ponta a ponta | `concluida` com `total_lotes = 0` e `linhas_invalidas = 3` | Integração | Vitest | 4 | automatizado |
+| T-IMP-21 | E-mail repetido no arquivo é erro de linha | Contrato, seção 7 (bloco 4) | — | CSV com o mesmo e-mail em duas linhas (com maiúsculas diferentes) | A primeira entra; a segunda vira erro "e-mail repetido (já aparece na linha N)" e conta em `linhas_invalidas`. Unitário em `services/importacao/test/csv.test.js` e ponta a ponta em `tests/importacao.test.js` | Unitário + Integração | Vitest | 4 | automatizado |
+| T-IMP-22 | Fila fora no `POST /importacoes` | Bloco 4, item 2; contrato, seção 7 | API no processo do teste, banco real, fila simulada | (a) fila fora antes de gravar; (b) fila cai entre o COMMIT e o `add` | 503 `FILA_INDISPONIVEL` nos dois; nenhuma linha em `orbita.importacoes` (a compensação apagou a de b). O ensaio com o Redis parado de verdade é o T-RES-03 | Integração | Vitest | 4 | automatizado |
 
 ### 2.6 Resiliência — bloco 5, `scripts/demo-degradacao.ps1`
 
@@ -197,7 +208,7 @@ casos são **ensaios** executados pelo script, com o resultado registrado.
 | ID | O que verifica | Origem | Pré-condição | Passos | Resultado esperado | Tipo | Ferramenta | Bloco | Status |
 |---|---|---|---|---|---|---|---|---|---|
 | T-OBS-01 | `x-request-id` aceito ou gerado | CLAUDE.md (observabilidade) | — | Requisição com `x-request-id: demo-123`; outra sem o header | 1ª devolve `demo-123`; 2ª devolve um UUID | Integração | Vitest | 5 | planejado |
-| T-OBS-03 | Status HTTP do `/saude` nas 4 combinações (decisão 2) | CLAUDE.md (observabilidade); contrato, `GET /saude` | — | `buildApp()` com banco e fila **simulados** (ok ou fora) e `inject` em `GET /saude`, em `services/api-contatos/test/saude.test.js` | db ok + fila ok → 200 `{db:"ok",fila:"ok"}`; db ok + fila fora → **200** `{db:"ok",fila:"fora"}`; db fora → **503** (com a fila ok ou fora). Só o banco decide o 503: a `readinessProbe` do kind não tira a API do ar quando só o Redis cai. O caso real (Redis parado de verdade) é o T-RES-04 | Unitário | Vitest | 4 | planejado |
+| T-OBS-03 | Status HTTP do `/saude` nas 4 combinações (decisão 2) | CLAUDE.md (observabilidade); contrato, `GET /saude` | — | `buildApp()` com banco e fila **simulados** (ok ou fora) e `inject` em `GET /saude`, em `services/api-contatos/test/saude.test.js` | db ok + fila ok → 200 `{db:"ok",fila:"ok"}`; db ok + fila fora → **200** `{db:"ok",fila:"fora"}`; db fora → **503** (com a fila ok ou fora). Só o banco decide o 503: a `readinessProbe` do kind não tira a API do ar quando só o Redis cai. O caso real (Redis parado de verdade) é o T-RES-04 | Unitário | Vitest | 4 | automatizado |
 | T-OBS-02 | O id atravessa a fila | CLAUDE.md | — | Importação com `x-request-id: demo-123`; `docker compose logs \| Select-String demo-123` | Linhas da `api-contatos` **e** da `importacao` com `demo-123`, `reqId` e `tenant_id` | Ensaio operacional | PowerShell | 5 | planejado |
 
 ### 2.9 Cenários de qualidade CQ-01, CQ-03, CQ-04 e CQ-05
@@ -388,7 +399,7 @@ Problemas que os testes vão expor. A solução sugerida vem ao lado, para decid
 
 | Etapa | Blocos | Precisa passar |
 |---|---|---|
-| **Etapa 2** — núcleo multi-tenant | 1 a 7 | `npm test` verde com T-RLS-01 a 17, T-ISO-01 a 13, 15 e 19, T-AUTH-01 a 08, T-CON-01 a 04, T-IMP-01 a 13, T-RL-01 a 05, T-OBS-01 e T-OBS-03. Ensaios T-RES-01 a 05, T-IMP-14 e T-OBS-02 executados com saída registrada. `scripts/demo-isolamento.ps1` rodando até o fim no Compose e no kind |
+| **Etapa 2** — núcleo multi-tenant | 1 a 7 | `npm test` verde com T-RLS-01 a 17, T-ISO-01 a 13, 15 e 19, T-AUTH-01 a 08, T-CON-01 a 04, T-IMP-01 a 13 e 15 a 22, T-RL-01 a 05, T-OBS-01 e T-OBS-03. Ensaios T-RES-01 a 05, T-IMP-14 e T-OBS-02 executados com saída registrada. `scripts/demo-isolamento.ps1` rodando até o fim no Compose e no kind |
 | **Etapa 3** — qualidade medida | 8 a 11 | Tudo da Etapa 2 rodando **no CI** a cada push. T-ISO-14 demonstrado (build vermelha com rota proibida). T-CQ01-01 aprovado e T-CQ01-02 registrado em `docs/ensaios/cq01-<data>.md`. T-CQ03-01 aprovado e T-RES-06 executado. T-CQ04-01 e T-CQ04-02 e T-CQ05-01 a 03 com relatório em `docs/ensaios/` |
 | **Etapa 4** — produto e entrega | 12 a 15 | Tudo das etapas 2 e 3, mais T-ISO-16 a 18, T-PROD-01 a 03, T-WEB-01 a T-WEB-09 (contra a stack real) e T-LGPD-01 a 03. T-RLS-15 continua verde com a tabela `interacoes`. Lacunas da seção 3.5 resolvidas ou declaradas na defesa |
 

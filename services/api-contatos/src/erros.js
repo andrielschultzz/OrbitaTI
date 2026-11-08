@@ -11,6 +11,10 @@ export const MENSAGENS = {
   EMAIL_DUPLICADO: 'Já existe um contato com esse e-mail.',
   ARQUIVO_GRANDE: 'O arquivo passa de 1 MB. Divida a planilha em partes menores.',
   TIPO_NAO_SUPORTADO: 'Formato não suportado. Envie um arquivo CSV.',
+  CSV_VAZIO: 'O arquivo não tem nenhum contato.',
+  CSV_SEM_COLUNAS: 'A primeira linha precisa ter as colunas nome e email.',
+  IMPORTACOES_SIMULTANEAS: 'Você já tem importações em andamento. Aguarde uma terminar.',
+  FILA_INDISPONIVEL: 'Importação indisponível no momento. O restante do sistema segue funcionando.',
 };
 
 /** Erro que já sabe virar resposta do contrato. Lance-o em qualquer rota; o setErrorHandler responde. */

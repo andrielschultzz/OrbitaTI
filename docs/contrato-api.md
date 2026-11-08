@@ -1,7 +1,8 @@
 # Contrato HTTP da API de Contatos
 
-**Versão:** 1.1 — 07/11/2026, derivada do `CLAUDE.md` e dos blocos 2, 4, 5, 10, 12 e 14.
+**Versão:** 1.2 — 08/11/2026, derivada do `CLAUDE.md` e dos blocos 2, 4, 5, 10, 12 e 14.
 Mudanças da 1.1 (Fase 0 do bloco 13): `GET /planos/atual` virou `GET /planos` pública; dados extras de erro no nível de cima; lacuna dos papéis declarada.
+Mudanças da 1.2 (bloco 4): e-mail repetido no CSV vira erro de linha (o simulador mudou junto); separador decidido pelo cabeçalho; reimportação não apaga dado com célula vazia; respostas, limites e erros das rotas `/interno` definidos (seção 8). Nenhuma rota usada pelo Portal mudou de formato.
 
 ## Para que serve
 
@@ -231,7 +232,14 @@ Mudanças da 1.1 (Fase 0 do bloco 13): `GET /planos/atual` virou `GET /planos` p
   - Antes de comparar, os nomes são normalizados: minúsculas, sem acento, sem espaço e sem hífen. Assim "E-mail" vira `email` e "Observação" vira `observacao`.
   - `nome` e `email` são obrigatórias (regra 9). Colunas extras são ignoradas.
 - **Separador:** `,` ou `;` (o Excel em português usa `;`). Aceita BOM UTF-8 (PowerShell 5).
+  - O separador é decidido **uma vez**, pela linha do cabeçalho (o que aparecer mais vezes), e vale para o arquivo inteiro. Assim `"Silva, João"` num arquivo com `;` continua sendo uma coluna só.
 - **Contagem:** linhas de dados = linhas não vazias depois do cabeçalho.
+- **Linha inválida** (vira erro de linha e conta em `linhas_invalidas`; as outras linhas seguem):
+  - `nome` vazio ou com mais de 120 caracteres;
+  - `email` vazio ou inválido (a mesma regra de e-mail do `POST /contatos`);
+  - **`email` repetido no mesmo arquivo** (sem diferença entre maiúsculas e minúsculas): a primeira ocorrência entra, as seguintes viram erro "e-mail repetido (já aparece na linha N)". Sem isso, "X contatos importados" contaria duas vezes o mesmo contato.
+- **Opcionais** (`telefone`, `empresa`, `observacao`): célula vazia vira `null`; acima do limite do `POST /contatos` (30, 120 e 500 caracteres), o texto é cortado.
+- **E-mail que já existe no tenant:** o contato é **atualizado**, não duplicado (regra 8). O `nome` sempre atualiza; uma célula vazia **não apaga** o telefone, a empresa ou a observação que já existiam.
 - **Modelo:** `web/public/modelo-contatos.csv`, com o cabeçalho `nome;email;telefone;empresa;observacao`.
 
 ### `POST /importacoes`
@@ -293,13 +301,16 @@ Mudanças da 1.1 (Fase 0 do bloco 13): `GET /planos/atual` virou `GET /planos` p
 
 **O Portal nunca chama estas rotas.** O Nginx do Portal responde 404 para `/api/interno/`; a proteção de verdade é o token, e o bloqueio no Nginx é uma camada a mais.
 
-| Rota | Corpo | O que faz |
-|---|---|---|
-| `POST /interno/importacoes/:id/inicio` | `{"total_lotes": 3, "linhas_invalidas": 3}` | O worker chama depois de validar o CSV. Muda o status para `processando` e grava os dois números. Se `total_lotes = 0` (todas as linhas inválidas), marca `concluida` na hora. Repetir com os mesmos números não muda nada, para o retry do BullMQ ser seguro |
-| `POST /interno/importacoes/:id/lotes` | `{"numero": 1, "contatos": [...]}` | Igual ao bloco 4: upsert e registro em `lotes_aplicados`. Responde `{aplicado: true}` ou `{aplicado: false}`. Marca `concluida` quando `lotes_aplicados = total_lotes` |
-| `POST /interno/importacoes/:id/falha` | `{"motivo": "..."}` | O worker chama quando o job esgota as 3 tentativas. Marca `falhou` |
+| Rota | Corpo | Resposta 200 | O que faz |
+|---|---|---|---|
+| `POST /interno/importacoes/:id/inicio` | `{"total_lotes": 3, "linhas_invalidas": 3}` | `{"status": "processando"}` (o status depois da chamada) | O worker chama depois de validar o CSV. Muda o status para `processando` e grava os dois números. Se `total_lotes = 0` (todas as linhas inválidas), marca `concluida` na hora. Repetir não muda nada (**vale o primeiro `inicio`**, mesmo com números diferentes), para o retry do BullMQ ser seguro |
+| `POST /interno/importacoes/:id/lotes` | `{"numero": 1, "contatos": [...]}` | `{"aplicado": true}` ou `{"aplicado": false}` | Upsert dos contatos e registro em `lotes_aplicados`. Lote já registrado → `{aplicado: false}`, sem aplicar de novo. Marca `concluida` quando `lotes_aplicados = total_lotes`. Lote que chega depois de `concluida` ou `falhou` → `{aplicado: false}`, sem aplicar |
+| `POST /interno/importacoes/:id/falha` | `{"motivo": "..."}` (até 500 caracteres) | `{"status": "falhou"}` | O worker chama quando o job esgota as 3 tentativas, ou na hora quando o erro não tem conserto (CSV ilegível, 4xx da API). Marca `falhou`. O `motivo` vai para o log da API, não para o banco |
 
-- **Regras comuns às três:** importação de outro tenant responde 404 (T-ISO-09). Status `concluida` ou `falhou` nunca volta atrás.
+- **Contato no lote:** `nome` (1 a 120) e `email` (válido, até 254) obrigatórios; `telefone` (30), `empresa` (120) e `observacao` (500) opcionais, podendo ser `null`. Os mesmos limites do `POST /contatos`.
+- **Tamanho do lote:** de 1 a 5.000 contatos (corpo até 4 MB). O normal são 100 (`IMPORT_LOTE`); o teto de 5.000 deixa o teste de carga rodar "sem a mitigação", com um lote só.
+- **Erros:** 400 `VALIDACAO` (corpo fora do schema, ou `numero` maior que `total_lotes`); 401 `NAO_AUTENTICADO` (sem token de serviço válido, inclusive JWT de usuário e token de serviço com mais de 60 s de vida); 404 `NAO_ENCONTRADO` ("Importação não encontrada.").
+- **Regras comuns às três:** importação de outro tenant responde 404 (T-ISO-09). Status `concluida` ou `falhou` nunca volta atrás: nesses casos `inicio` e `falha` só devolvem o status atual.
 - **Por que `inicio` e `falha` existem.** Sem elas a importação poderia ficar presa para sempre:
   - **Total de lotes errado.** Se a API calculasse `total_lotes` contando também as linhas inválidas, 100 válidas + 3 inválidas dariam 2 lotes esperados contra 1 enviado, e a importação nunca chegaria a `concluida`.
   - **CSV todo inválido.** Nenhum lote seria enviado, e a importação nunca sairia de `na_fila`.
@@ -345,6 +356,10 @@ Registrar no ADR-004 (bloco 7) e saber defender:
 | `ON DELETE CASCADE` nas interações | Excluir um contato com histórico não pode dar 500 |
 | Cabeçalho e colunas do CSV definidos; 422 para CSV vazio ou sem colunas | Fecha a lacuna "Formato do CSV" de `pendencias-bloco-7.md`; o erro chega na hora, não depois da fila |
 | Rotas `/interno/.../inicio` e `/falha` | Sem elas a importação pode nunca concluir (seção 8) |
+| E-mail repetido no mesmo CSV vira erro de linha (1.2) | O upsert de um lote com o mesmo e-mail duas vezes daria 500 no PostgreSQL; e "X contatos importados" contaria duas vezes o mesmo contato |
+| Separador do CSV decidido pelo cabeçalho (1.2) | Aceitar `,` e `;` ao mesmo tempo quebraria `"Silva, João"` num arquivo do Excel em português |
+| Reimportação não apaga dado com célula vazia (`COALESCE`) (1.2) | Uma planilha incompleta não pode destruir o telefone que alguém cadastrou à mão |
+| `inicio`/`falha` respondem `{status}`; vale o primeiro `inicio`; lote depois de `falhou` não é aplicado (1.2) | Retry do BullMQ sempre seguro; o worker registra no log o status que a API ficou |
 | `GET /planos` público, com preço em centavos, sem rate limit | O cadastro mostra os planos antes de existir token; o Portal mostra preços e limites sem duplicar o `planos.js`; a rota só lê memória, então o rate limit custaria mais que ela |
 | Dados extras de erro (`limite`, `linhas`) no nível de cima | Um só formato para o Portal ler, sem objeto aninhado |
 | Papéis tratados igual, menos `/conta/*` | Lacuna declarada (seção 10), decidida junto com o convite de usuários |

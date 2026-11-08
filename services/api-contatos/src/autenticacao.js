@@ -1,12 +1,18 @@
 // Autenticação por JWT (ADR-002): o tenant vem do token assinado, nunca da requisição.
 //
-// - Toda rota é protegida por padrão. Rota pública declara `config: { publica: true }` (/auth/*, /saude).
-//   Proteger por padrão é mais seguro que o contrário: uma rota nova esquecida fica fechada, não aberta.
+// - Toda rota é protegida por padrão. Rota pública declara `config: { publica: true }` (/auth/*, /saude,
+//   /planos). Proteger por padrão é mais seguro que o contrário: uma rota nova esquecida fica fechada.
 // - Roda no onRequest, ANTES de ler e validar o corpo: sem token é 401, nunca 400.
 // - Só HS256 é aceito. Sem essa trava, um token forjado poderia pedir outro algoritmo no cabeçalho.
-// - O token de serviço do worker (bloco 4) usa OUTRO segredo, então aqui ele falha na assinatura: 401.
+//
+// Dois tipos de token, com DOIS segredos (regra 7). Vazar um não compromete o outro:
+//   usuário   JWT_SEGREDO          rotas normais. Token de serviço aqui falha na assinatura: 401 (T-ISO-12).
+//   serviço   JWT_SERVICO_SEGREDO  só rotas com `config: { servico: true }` (/interno/*). Exige
+//                                  iss "importacao", aud "api-contatos", exp e no máximo 60 s de vida.
+//                                  JWT de usuário aqui falha na assinatura: 401 (T-IMP-10).
 import fp from 'fastify-plugin';
 import jwt from '@fastify/jwt';
+import { createVerifier } from 'fast-jwt';
 import { ErroContrato } from './erros.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -18,15 +24,61 @@ const claimsValidas = (c) =>
   typeof c?.sub === 'string' && UUID.test(c.sub) && typeof c.tenant_id === 'string' && UUID.test(c.tenant_id) &&
   PLANOS.has(c.plano) && PAPEIS.has(c.papel);
 
-async function autenticacao(app, { segredo }) {
+/** Vida máxima do token de serviço (regra 7). */
+const VIDA_TOKEN_SERVICO_S = 60;
+/** Diferença de relógio aceita entre o worker e a API (contêineres diferentes, mesmo host ou não). */
+const TOLERANCIA_RELOGIO_S = 5;
+
+function criarVerificadorServico(segredo) {
+  const verificar = createVerifier({
+    key: segredo,
+    algorithms: ['HS256'],
+    allowedIss: 'importacao',
+    allowedAud: 'api-contatos',
+    requiredClaims: ['iss', 'aud', 'exp', 'tenant_id'],
+    clockTolerance: TOLERANCIA_RELOGIO_S * 1000,
+  });
+  return (token) => {
+    const claims = verificar(token); // lança se assinatura, iss, aud ou exp estiverem errados
+    // O exp poderia ter sido posto lá longe por quem tem o segredo: um token de serviço de 1 ano que
+    // vaze em log valeria por 1 ano. A API recusa qualquer um que ainda tenha mais de 60 s de vida.
+    const restante = claims.exp - Math.floor(Date.now() / 1000);
+    if (restante > VIDA_TOKEN_SERVICO_S + TOLERANCIA_RELOGIO_S) throw new Error('token de serviço longo demais');
+    if (typeof claims.tenant_id !== 'string' || !UUID.test(claims.tenant_id)) throw new Error('tenant_id inválido');
+    return claims;
+  };
+}
+
+/** Lê o "Bearer <token>" do cabeçalho. */
+function tokenDoCabecalho(req) {
+  const [tipo, token] = (req.headers.authorization ?? '').split(' ');
+  return tipo === 'Bearer' && token ? token : null;
+}
+
+async function autenticacao(app, { segredo, servicoSegredo }) {
   await app.register(jwt, {
     secret: segredo,
     sign: { algorithm: 'HS256', expiresIn: '15m' }, // 15 min: números do projeto (T-AUTH-07)
     verify: { algorithms: ['HS256'] },
   });
+  const verificarServico = criarVerificadorServico(servicoSegredo);
 
   app.addHook('onRequest', async (req, rep) => {
     if (req.is404 || req.routeOptions.config?.publica) return;
+
+    if (req.routeOptions.config?.servico) {
+      let claims;
+      try {
+        claims = verificarServico(tokenDoCabecalho(req));
+      } catch {
+        throw new ErroContrato(401, 'NAO_AUTENTICADO');
+      }
+      // Mesmo formato de req.user das rotas de usuário: a rota lê req.user.tenant_id (regra 1).
+      req.user = { tenant_id: claims.tenant_id, servico: claims.iss };
+      req.log = rep.log = req.log.child({ tenant_id: claims.tenant_id });
+      return;
+    }
+
     let claims;
     try {
       claims = await req.jwtVerify();

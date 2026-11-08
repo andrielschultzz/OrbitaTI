@@ -5,42 +5,64 @@
 // ser 404, idêntica à de um id que não existe, e o contato de B tem de continuar intacto.
 //
 // Pré-requisito: docker compose up -d --build --wait
-import { createHmac } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import pg from 'pg';
 import { buildApp } from '../services/api-contatos/src/app.js';
-import { cadastrar, chamar, limparTenants, payload, randomUUID } from './apoio/api.js';
+import {
+  assinar,
+  cadastrar,
+  chamar,
+  criarImportacaoNoBanco,
+  limparTenants,
+  payload,
+  randomUUID,
+  tokenServico,
+} from './apoio/api.js';
 
 // ---------------------------------------------------------------------------------------------------
 // A TABELA. Toda rota que lê ou grava dado de tenant entra aqui. Rota nova com :id = uma linha nova em
 // ROTAS_COM_ID, e ela passa a ser atacada pelos testes T-ISO-01 a 03, 05 e 19 sem escrever mais nada.
 // O T-ISO-15 (no fim do arquivo) falha se existir rota registrada na API que não esteja nesta tabela.
 // ---------------------------------------------------------------------------------------------------
+//   recurso  de quem é o id atacado: 'contato' (padrão) ou 'importacao'
+//   token    'usuario' (padrão) ou 'servico' (rotas /interno: token de serviço com tenant_id = A, regra 7)
+const LOTE_INVASOR = { numero: 1, contatos: [{ nome: 'Invasor', email: 'invasor-lote@a.com' }] };
 const ROTAS_COM_ID = [
   { metodo: 'GET', caminho: '/contatos/:id', caso: 'T-ISO-01' },
   { metodo: 'PATCH', caminho: '/contatos/:id', caso: 'T-ISO-02', corpo: { nome: 'Invasor', email: 'invasor@a.com' } },
   { metodo: 'DELETE', caminho: '/contatos/:id', caso: 'T-ISO-03' },
-  // bloco 4: { metodo: 'GET', caminho: '/importacoes/:id', caso: 'T-ISO-08' }, ...
+  { metodo: 'GET', caminho: '/importacoes/:id', caso: 'T-ISO-08', recurso: 'importacao' },
+  {
+    metodo: 'POST', caminho: '/interno/importacoes/:id/inicio', caso: 'T-ISO-09', recurso: 'importacao', token: 'servico',
+    corpo: { total_lotes: 0, linhas_invalidas: 0 }, // 0 marcaria a importação de B como concluída
+  },
+  { metodo: 'POST', caminho: '/interno/importacoes/:id/lotes', caso: 'T-ISO-09', recurso: 'importacao', token: 'servico', corpo: LOTE_INVASOR },
+  {
+    metodo: 'POST', caminho: '/interno/importacoes/:id/falha', caso: 'T-ISO-09', recurso: 'importacao', token: 'servico',
+    corpo: { motivo: 'ataque' },
+  },
 ];
 
 // Rotas de tenant SEM :id: não dá para "pedir o recurso do outro" pelo caminho; cada uma tem teste próprio.
 const ROTAS_SEM_ID = [
   { metodo: 'GET', caminho: '/contatos', caso: 'T-ISO-04 e T-ISO-07' },
   { metodo: 'POST', caminho: '/contatos', caso: 'T-ISO-06' },
+  { metodo: 'POST', caminho: '/importacoes', caso: 'T-IMP-02' }, // tests/importacao.test.js
 ];
 
 // Rotas públicas (config.publica: sem token, logo sem tenant). Lista FIXA de propósito: marcar uma rota
 // como pública tira ela da autenticação E da tabela acima. Sem esta lista, esse seria um jeito de escapar
-// das duas coisas com uma linha só. Próximas: /planos (bloco 4), /auth/confirmar (bloco 10),
-// /conta/exportacao/arquivo (bloco 14).
-const ROTAS_PUBLICAS = ['GET /saude', 'POST /auth/cadastro', 'POST /auth/login'];
+// das duas coisas com uma linha só. Próximas: /auth/confirmar (bloco 10), /conta/exportacao/arquivo (bloco 14).
+// GET /planos (bloco 4) não tem dado de tenant: a resposta é a mesma para qualquer pessoa.
+const ROTAS_PUBLICAS = ['GET /saude', 'GET /planos', 'POST /auth/cadastro', 'POST /auth/login'];
 
 const chave = (r) => `${r.metodo} ${r.caminho}`;
 const comId = (rota, id) => rota.caminho.replace(':id', id);
 
 let A; // tenant A: o "atacante"
-let B; // tenant B: o dono do contato
+let B; // tenant B: o dono do contato e da importação
 let contatoB; // contato de B, como B o vê
+let importacaoB; // importação de B, como B a vê
 
 beforeAll(async () => {
   A = await cadastrar({ empresa: 'Isolamento A' });
@@ -51,20 +73,39 @@ beforeAll(async () => {
   });
   expect(r.status).toBe(201);
   contatoB = r.corpo;
+
+  // Importação de B criada direto no banco (sem job): o worker não a altera durante o teste, então
+  // "intacta" quer dizer intacta. Status processando com 1 lote esperado: se o isolamento falhasse,
+  // o lote do invasor seria aplicado e a concluiria. É o pior caso, de propósito.
+  const id = await criarImportacaoNoBanco(B.tenantId, { status: 'processando', totalLinhas: 1, totalLotes: 1 });
+  importacaoB = (await chamar('GET', `/importacoes/${id}`, { token: B.token })).corpo;
+  expect(importacaoB.status).toBe('processando');
 });
 afterAll(limparTenants);
 
-/** B relê o próprio contato: tem de estar exatamente como foi criado. */
-async function contatoDeBIntacto() {
-  const r = await chamar('GET', `/contatos/${contatoB.id}`, { token: B.token });
-  expect(r.status).toBe(200);
-  expect(r.corpo).toEqual(contatoB);
+const idDeB = (rota) => (rota.recurso === 'importacao' ? importacaoB.id : contatoB.id);
+const tokenDeA = (rota) => (rota.token === 'servico' ? tokenServico(A.tenantId) : A.token);
+
+/** B relê o próprio contato e a própria importação: têm de estar exatamente como foram criados. */
+async function dadosDeBIntactos() {
+  const c = await chamar('GET', `/contatos/${contatoB.id}`, { token: B.token });
+  expect(c.status).toBe(200);
+  expect(c.corpo).toEqual(contatoB);
+  const i = await chamar('GET', `/importacoes/${importacaoB.id}`, { token: B.token });
+  expect(i.status).toBe(200);
+  expect(i.corpo).toEqual(importacaoB);
+  // O lote do invasor não entrou em lugar nenhum: nem em B (alvo) nem em A (dono do token).
+  for (const quem of [A, B]) {
+    const busca = await chamar('GET', '/contatos?busca=invasor-lote', { token: quem.token });
+    expect(busca.corpo.itens).toEqual([]);
+  }
 }
 
-describe('T-ISO-01 a 03 e T-ISO-05: A ataca o contato de B pelo id', () => {
+describe('T-ISO-01 a 03, 05, 08 e 09: A ataca o contato e a importação de B pelo id', () => {
   it.each(ROTAS_COM_ID)('$caso: $metodo $caminho -> 404, igual a um id inexistente', async (rota) => {
-    const cruzado = await chamar(rota.metodo, comId(rota, contatoB.id), { token: A.token, corpo: rota.corpo });
-    const inexistente = await chamar(rota.metodo, comId(rota, randomUUID()), { token: A.token, corpo: rota.corpo });
+    const token = tokenDeA(rota);
+    const cruzado = await chamar(rota.metodo, comId(rota, idDeB(rota)), { token, corpo: rota.corpo });
+    const inexistente = await chamar(rota.metodo, comId(rota, randomUUID()), { token, corpo: rota.corpo });
 
     expect(cruzado.status).toBe(404);
     expect(cruzado.corpo.codigo).toBe('NAO_ENCONTRADO');
@@ -73,9 +114,9 @@ describe('T-ISO-01 a 03 e T-ISO-05: A ataca o contato de B pelo id', () => {
     expect(cruzado.corpo).toEqual(inexistente.corpo);
     // Nenhum dado de B no corpo.
     const texto = JSON.stringify(cruzado.corpo);
-    for (const valor of [contatoB.nome, contatoB.email, contatoB.empresa]) expect(texto).not.toContain(valor);
+    for (const valor of [contatoB.nome, contatoB.email, contatoB.empresa, importacaoB.id]) expect(texto).not.toContain(valor);
 
-    await contatoDeBIntacto(); // o PATCH não alterou e o DELETE não apagou
+    await dadosDeBIntactos(); // PATCH não alterou, DELETE não apagou, inicio/lotes/falha não mexeram
   });
 });
 
@@ -119,13 +160,22 @@ describe('T-ISO-06: tenant_id no corpo é ignorado', () => {
 });
 
 // ---------------------------------------------------------------------------------------------------
-// Tokens (ADR-002). A assinatura HS256 é um HMAC-SHA256 de "cabeçalho.payload" com o segredo.
+// Tokens (ADR-002). assinar() está em apoio/api.js: HMAC-SHA256 de "cabeçalho.payload" com o segredo.
 // ---------------------------------------------------------------------------------------------------
 const b64 = (obj) => Buffer.from(JSON.stringify(obj)).toString('base64url');
-function assinar(claims, segredo) {
-  const corpo = `${b64({ alg: 'HS256', typ: 'JWT' })}.${b64(claims)}`;
-  return `${corpo}.${createHmac('sha256', segredo).update(corpo).digest('base64url')}`;
-}
+
+describe('T-ISO-12: token de serviço não serve em rota de usuário (dois segredos, regra 7)', () => {
+  it.each([
+    ['GET', '/contatos'],
+    ['GET', `/importacoes/${randomUUID()}`],
+    ['POST', '/contatos'],
+  ])('%s %s com token de serviço válido -> 401', async (metodo, caminho) => {
+    const corpo = metodo === 'POST' ? { nome: 'Pelo worker' } : undefined;
+    const r = await chamar(metodo, caminho, { token: tokenServico(A.tenantId), corpo });
+    expect(r.status).toBe(401);
+    expect(r.corpo.codigo).toBe('NAO_AUTENTICADO');
+  });
+});
 
 describe('T-ISO-10 e T-ISO-11: token adulterado ou expirado', () => {
   it('T-ISO-10: trocar o tenant_id do payload para o de B, sem reassinar -> 401', async () => {
@@ -172,6 +222,8 @@ describe('API no próprio processo', () => {
     });
     app = buildApp({
       pool,
+      // O Redis do compose não tem porta publicada, e nenhuma rota da tabela enfileira: fila simulada.
+      fila: { verificar: async () => true, enfileirar: async () => {} },
       // O log em JSON vai para esta lista em vez do terminal: é o que o T-ISO-19 inspeciona.
       logger: { level: 'info', stream: { write: (linha) => logs.push(JSON.parse(linha)) } },
     });
@@ -202,12 +254,12 @@ describe('API no próprio processo', () => {
   describe('T-ISO-19: todo 404 em rota com :id gera o evento recurso_nao_encontrado (decisão 6)', () => {
     const eventos = () => logs.filter((l) => l.evento === 'recurso_nao_encontrado');
 
-    it.each(ROTAS_COM_ID)('$metodo $caminho no contato de B -> log com tenant_id de A, rota e id', async (rota) => {
+    it.each(ROTAS_COM_ID)('$metodo $caminho no recurso de B -> log com tenant_id de A, rota e id', async (rota) => {
       const antes = eventos().length;
       const r = await app.inject({
         method: rota.metodo,
-        url: comId(rota, contatoB.id),
-        headers: { authorization: `Bearer ${A.token}` },
+        url: comId(rota, idDeB(rota)),
+        headers: { authorization: `Bearer ${tokenDeA(rota)}` },
         payload: rota.corpo,
       });
       expect(r.statusCode).toBe(404);
@@ -217,7 +269,7 @@ describe('API no próprio processo', () => {
         tenant_id: A.tenantId, // quem tentou (B não aparece: com RLS, a API nem sabe de quem é o id)
         metodo: rota.metodo,
         rota: rota.caminho,
-        id: contatoB.id,
+        id: idDeB(rota),
       });
     });
 

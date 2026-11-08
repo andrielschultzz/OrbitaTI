@@ -11,6 +11,7 @@ import { buildApp } from '../src/app.js';
 
 const SEGREDO_FALSO = 'x'.repeat(32); // buildApp exige 32+ caracteres; nenhum token é assinado aqui
 const POOL_FALSO = { query: async () => ({ rows: [] }) }; // nenhuma rota é chamada, só registrada
+const FILA_FALSA = { verificar: async () => true, enfileirar: async () => {} }; // sem Redis
 
 /** Nomes de propriedade de um JSON Schema, em qualquer profundidade (objetos dentro de objetos, arrays). */
 function nomesDePropriedade(schema, nomes = []) {
@@ -25,7 +26,7 @@ function nomesDePropriedade(schema, nomes = []) {
 
 /** Monta o app, deixa `extra` registrar rotas a mais (contra-teste) e devolve as rotas registradas. */
 async function rotasRegistradas(extra) {
-  const app = buildApp({ jwtSegredo: SEGREDO_FALSO, pool: POOL_FALSO, logger: false });
+  const app = buildApp({ jwtSegredo: SEGREDO_FALSO, jwtServicoSegredo: 'y'.repeat(32), pool: POOL_FALSO, fila: FILA_FALSA, logger: false });
   const rotas = [];
   app.addHook('onRoute', (rota) => rotas.push(rota));
   if (extra) app.register(extra);
