@@ -1,9 +1,15 @@
-// POST /auth/cadastro e POST /auth/login (contrato, seção 4). Rotas públicas.
+// POST /auth/cadastro, POST /auth/login e GET /auth/confirmar (contrato, seção 4). Rotas públicas.
 import { randomBytes, randomUUID } from 'node:crypto';
 import { hash, verify } from '@node-rs/argon2';
+import { FINALIDADE_CONFIRMAR_EMAIL, VALIDADE_CONFIRMACAO } from '../autenticacao.js';
 import { withTenant } from '../db.js';
 import { ErroContrato, violouUnico } from '../erros.js';
-import { limiteCadastro, limiteLogin } from '../limite.js';
+import { limiteCadastro, limiteConfirmacao, limiteLogin } from '../limite.js';
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// Um JWT nosso de confirmação tem ~250 caracteres. Acima disto é lixo: nem tenta verificar.
+const TOKEN_MAXIMO = 2048;
+const linkInvalido = () => new ErroContrato(400, 'LINK_INVALIDO');
 
 // O padrão do @node-rs/argon2 já é Argon2id (memória 19 MiB, 2 passadas, 1 thread: a recomendação da
 // OWASP). O T-AUTH-08 confere o prefixo $argon2id$ no hash gravado.
@@ -20,7 +26,7 @@ const resposta = { type: 'object', properties: { token: { type: 'string' } } };
 
 const credencialInvalida = () => new ErroContrato(401, 'CREDENCIAIS_INVALIDAS');
 
-export default async function rotasAuth(app, { pool, limiteCadastroPorMin }) {
+export default async function rotasAuth(app, { pool, fila, limiteCadastroPorMin, portalUrl }) {
   app.post(
     '/auth/cadastro',
     {
@@ -76,8 +82,78 @@ export default async function rotasAuth(app, { pool, limiteCadastroPorMin }) {
       // Daqui em diante (inclusive o "request completed"), o log desta requisição sai com o tenant.
       req.log = rep.log = req.log.child({ tenant_id: tenantId });
       req.log.info('cadastro: tenant criado');
+
+      // E-mail de confirmação (bloco 10). Só DEPOIS do COMMIT (o withTenant acima já retornou): se fosse
+      // antes, um ROLLBACK deixaria um e-mail no ar apontando para um usuário que não existe.
+      // Fila fora NÃO impede o cadastro: o e-mail não pode travar o onboarding (T-RES-06). O usuário entra
+      // do mesmo jeito; o login não exige confirmação.
+      const tokenConfirmacao = app.jwt.sign(
+        { sub: usuarioId, tenant_id: tenantId, finalidade: FINALIDADE_CONFIRMAR_EMAIL },
+        { expiresIn: VALIDADE_CONFIRMACAO },
+      );
+      try {
+        await fila.enfileirarEmail(
+          {
+            tipo: 'confirmar-cadastro',
+            para: emailNormalizado,
+            nome: nome.trim(),
+            link: `${portalUrl}/confirmar-email?token=${tokenConfirmacao}`,
+            request_id: req.id,
+            tenant_id: tenantId,
+          },
+          `confirmar-cadastro-${usuarioId}`, // sem ":" (fila.js explica)
+        );
+      } catch (erro) {
+        // Sem o e-mail nem o link no log: o link vale como credencial por 24 h (T-OBS-04).
+        req.log.warn({ evento: 'email_nao_enfileirado', motivo: erro.message }, 'cadastro concluído sem o e-mail de confirmação');
+      }
+
       const token = app.jwt.sign({ sub: usuarioId, tenant_id: tenantId, plano, papel: 'admin' });
       return rep.status(201).send({ token });
+    },
+  );
+
+  app.get(
+    '/auth/confirmar',
+    {
+      config: { publica: true, rateLimit: limiteConfirmacao },
+      // Sem "required" e sem limite no schema: token ausente, grande ou estranho é sempre 400 LINK_INVALIDO
+      // (contrato, seção 4), nunca VALIDACAO. A tela do Portal só precisa conhecer um código.
+      schema: {
+        querystring: { type: 'object', properties: { token: { type: 'string' } } },
+        response: { 200: { type: 'object', properties: { confirmado_em: { type: 'string' } } } },
+      },
+    },
+    async (req, rep) => {
+      const { token } = req.query;
+      if (typeof token !== 'string' || !token || token.length > TOKEN_MAXIMO) throw linkInvalido();
+
+      let claims;
+      try {
+        claims = app.jwt.verify(token); // assinatura (HS256) e validade (exp)
+      } catch {
+        throw linkInvalido(); // adulterado, expirado ou não é JWT: mesma resposta
+      }
+      // Só o token do link vale aqui. Token de sessão (sem finalidade) é recusado (T-AUTH-12).
+      if (claims.finalidade !== FINALIDADE_CONFIRMAR_EMAIL) throw linkInvalido();
+      if (typeof claims.sub !== 'string' || !UUID.test(claims.sub)) throw linkInvalido();
+      if (typeof claims.tenant_id !== 'string' || !UUID.test(claims.tenant_id)) throw linkInvalido();
+
+      req.log = rep.log = req.log.child({ tenant_id: claims.tenant_id });
+      // O tenant vem do token ASSINADO pela API (regra 1), e o UPDATE roda sob RLS. COALESCE: clicar de
+      // novo no link mantém a data da primeira confirmação.
+      const linhas = await withTenant(pool, claims.tenant_id, async (c) => {
+        const { rows } = await c.query(
+          `UPDATE orbita.usuarios SET email_confirmado_em = COALESCE(email_confirmado_em, now())
+            WHERE id = $1 RETURNING email_confirmado_em`,
+          [claims.sub],
+        );
+        return rows;
+      });
+      // Usuário apagado depois do envio (ou tenant cancelado): 0 linhas. O link não vale mais.
+      if (linhas.length === 0) throw linkInvalido();
+      req.log.info({ evento: 'email_confirmado' }, 'e-mail confirmado');
+      return { confirmado_em: linhas[0].email_confirmado_em.toISOString() };
     },
   );
 

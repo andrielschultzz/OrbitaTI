@@ -69,6 +69,12 @@ spec:
               value: "0"
             - name: LIMITE_CADASTRO_POR_MIN
               value: "60"
+            # Base do link do e-mail de confirmação (bloco 10). Valor no manifesto, e não no Secret: não é
+            # segredo, e o Secret só é criado se ainda não existe (um cluster antigo nunca o receberia).
+            # ATENÇÃO: a 30080 hoje é a API, não o Portal. O link do e-mail dá 404 no kind até a Fase 6 do
+            # bloco 13 pôr o nginx do Portal na frente (docs/pendencias-bloco-7.md, K7).
+            - name: PORTAL_URL
+              value: "http://localhost:30080"
           readinessProbe:
             httpGet:
               path: /saude

@@ -1,4 +1,5 @@
-# OrbitaTI: stack local. postgres, redis, migrate (job), api-contatos e importacao (worker).
+# OrbitaTI: stack local. postgres, redis, migrate (job), api-contatos, importacao (worker),
+# notificacoes (worker de e-mail) e mailpit (caixa de e-mail falsa, bloco 10).
 # O Portal (bloco 13, Fase 6) entra aqui depois.
 #
 #   docker compose up -d --build --wait   sobe tudo; o migrate roda e SAI antes de a API subir
@@ -77,6 +78,9 @@ services:
       # interna. Seguro aqui porque a porta 3000 só existe em 127.0.0.1 (ver "ports" abaixo).
       TRUST_PROXY_SALTOS: ${TRUST_PROXY_SALTOS:-1}
       LIMITE_CADASTRO_POR_MIN: ${LIMITE_CADASTRO_POR_MIN:-60}
+      # Base do link do e-mail de confirmação (bloco 10). Sem padrão de propósito: esquecer na VM
+      # mandaria links para "localhost" a clientes reais. Com :?, o compose avisa na hora.
+      PORTAL_URL: ${PORTAL_URL:?defina PORTAL_URL no .env, veja o .env.example}
     # Só 127.0.0.1: os testes e o curl rodam no host. Na VM, só o Portal fica exposto; a API é
     # alcançada pelo proxy /api do nginx, dentro da rede do compose.
     ports:
@@ -141,6 +145,65 @@ services:
     restart: unless-stopped
     # Tempo para terminar o job em andamento no SIGTERM. Se passar, o job volta à fila e recomeça
     # sem duplicar nada (idempotência, T-IMP-14).
+    stop_grace_period: 30s
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+
+  mailpit:
+    # Caixa de e-mail falsa (bloco 10): recebe por SMTP tudo o que o serviço de notificações envia e mostra
+    # numa interface web. Nenhum e-mail sai para a internet. O teste do CQ-03 consulta a API dela.
+    # Versão fixa: a v1.33.1 saiu na véspera do bloco 10; a v1.32.0 já tinha duas semanas de uso.
+    image: axllent/mailpit:v1.32.0
+    # A imagem roda como root por padrão. Não precisa: as portas são > 1024 e ele só grava no /tmp.
+    user: "65534:65534"
+    environment:
+      # Guarda só as últimas 1.000 mensagens (em memória/tmp): a suíte manda dezenas por execução.
+      MP_MAX_MESSAGES: 1000
+    # SMTP (1025) SEM porta publicada: só a rede do compose envia. Interface e API (8025) só em 127.0.0.1:
+    # o teste roda no host, e mais ninguém da rede lê os e-mails (eles carregam links que valem 24 h).
+    ports:
+      - "127.0.0.1:8025:8025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+
+  notificacoes:
+    # Worker BullMQ da fila "emails" (bloco 10). Sem banco: tudo vem no job. Envia pelo SMTP do Mailpit.
+    build:
+      context: .
+      dockerfile: services/notificacoes/Dockerfile
+    image: orbitati/notificacoes:0.1.0
+    environment:
+      REDIS_URL: ${REDIS_URL:?defina REDIS_URL no .env}
+      SMTP_HOST: mailpit
+      SMTP_PORTA: 1025
+      EMAIL_REMETENTE: ${EMAIL_REMETENTE:-OrbitaTI <nao-responda@orbitati.local>}
+    # Sem "ports": o /saude (3001) só é usado pelo healthcheck, de dentro.
+    depends_on:
+      redis:
+        condition: service_healthy
+      mailpit:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3001/saude"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
     stop_grace_period: 30s
     read_only: true
     tmpfs:

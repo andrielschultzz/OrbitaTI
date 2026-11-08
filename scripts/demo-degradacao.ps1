@@ -13,13 +13,15 @@
   Parte 2: o Redis cai
     5. Para o Redis: POST /importacoes -> 503 em menos de 2 s, sem registro órfão (T-RES-03).
     6. Login, busca, CRUD de contato e /saude seguem respondendo; o rate limit é ignorado (T-RES-04).
-    7. Sobe o Redis: a importação volta a funcionar SEM reiniciar a API (T-RES-05).
+       Uma empresa NOVA se cadastra: 201 com token, e a API registra o aviso email_nao_enfileirado (T-RES-06).
+    7. Sobe o Redis: a importação volta a funcionar SEM reiniciar a API (T-RES-05). O cadastro do passo 6
+       não recebe e-mail: o job nunca existiu (T-RES-06, "nenhum e-mail enviado").
   Parte 3: o banco cai (T-RES-07, achado K7)
     8. Para o Postgres: /saude -> 503 {"db":"fora"}, e nem a API nem o worker reiniciam (StartedAt igual).
        Antes da correção do K7, o pg.Pool sem ouvinte de 'error' derrubava os dois processos.
     9. Sobe o Postgres: /saude volta a 200 e o CRUD de contato funciona, ainda sem reiniciar nada.
 
-  No fim, apaga os contatos que a demo criou. Se o script parar no meio, religa o que tiver parado.
+  No fim, apaga os contatos e a empresa que a demo criou. Se o script parar no meio, religa o que tiver parado.
   Sai com código 0 se tudo saiu como esperado e 1 se houve falha.
 
 .PARAMETER BaseUrl
@@ -180,6 +182,20 @@ function EsperarConclusao([string]$Id, [int]$Segundos = 90) {
   return $r.Corpo
 }
 
+# Claims do JWT, sem verificar a assinatura (só para ler o tenant_id; quem verifica é a API).
+function ClaimsDoToken([string]$Token) {
+  $parte = $Token.Split('.')[1].Replace('-', '+').Replace('_', '/')
+  $parte += '=' * ((4 - $parte.Length % 4) % 4)
+  return [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($parte)) | ConvertFrom-Json
+}
+
+# Quantas mensagens o Mailpit tem para um endereço (API em 127.0.0.1:8025, compose do bloco 10).
+function EmailsNoMailpit([string]$Endereco) {
+  $q = [Uri]::EscapeDataString("to:$Endereco")
+  $r = Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:8025/api/v1/search?query=$q"
+  return [int](($r.Content | ConvertFrom-Json).messages_count)
+}
+
 function ImportacoesNoBanco {
   # psql como superusuário dentro do contêiner (ignora o RLS): conta o total de registros, de todos os
   # tenants. Só para provar que o 503 não deixou registro órfão para trás.
@@ -246,6 +262,26 @@ try {
   $saude = MostrarSaude
   Conferir '/saude -> HTTP 200 com fila "fora"' ($saude.Status -eq 200 -and $saude.Corpo.db -eq 'ok' -and $saude.Corpo.fila -eq 'fora') ''
   CrudContato 'sem o Redis'
+
+  # T-RES-06: o e-mail de confirmação não pode impedir o onboarding (bloco 10, item 3).
+  $script:EmailCadastro = "demo-tres06-$(Get-Date -Format 'yyyyMMddHHmmss')@exemplo.com.br"
+  $cad = Chamar POST '/auth/cadastro' @{
+    empresa = 'Demo T-RES-06'; plano = 'individual'; nome = 'Cadastro sem fila'; email = $script:EmailCadastro; senha = 'Demo@2026'
+  } -Token ''
+  Conferir 'T-RES-06: cadastro de empresa nova -> 201 com token' ($cad.Status -eq 201 -and $cad.Corpo.token) "HTTP $($cad.Status), $($cad.Ms) ms"
+  if ($cad.Status -eq 201) {
+    $script:TenantCadastro = (ClaimsDoToken $cad.Corpo.token).tenant_id
+    # O aviso sai com o tenant do cadastro (logger filho). Procura só nos últimos 2 min do log.
+    $ErrorActionPreference = 'Continue'
+    $aviso = & docker compose logs api-contatos --since 2m --no-log-prefix 2>$null |
+      Select-String -SimpleMatch 'email_nao_enfileirado' | Select-String -SimpleMatch $script:TenantCadastro
+    $ErrorActionPreference = 'Stop'
+    Conferir 'aviso email_nao_enfileirado no log da API' ([bool]$aviso) "tenant $($script:TenantCadastro)"
+    if ($aviso) {
+      $linha = "$($aviso[0])" | ConvertFrom-Json
+      Write-Host ("  log: level {0}, evento {1}, motivo ""{2}""" -f $linha.level, $linha.evento, $linha.motivo)
+    }
+  }
   Pausa
 
   Passo '8. T-RES-05: o Redis volta e a importação funciona sem reiniciar a API'
@@ -265,6 +301,12 @@ try {
   if ($imp.Status -eq 202) {
     $final = EsperarConclusao $imp.Corpo.importacao_id
     Conferir 'importação concluida' ($final.status -eq 'concluida') "status: $($final.status)"
+  }
+  # T-RES-06, segunda metade: com a fila de volta (e o worker de e-mail no ar há vários segundos), o
+  # cadastro feito sem a fila continua sem e-mail. O job nunca foi criado; nada "atrasado" chega depois.
+  if ($script:EmailCadastro) {
+    $n = EmailsNoMailpit $script:EmailCadastro
+    Conferir 'T-RES-06: nenhum e-mail para o cadastro feito sem a fila' ($n -eq 0) "$n mensagem(ns) no Mailpit"
   }
   Pausa
 
@@ -310,6 +352,13 @@ foreach ($c in @((Chamar GET "/contatos?busca=$MarcaImportacao").Corpo.itens)) {
   if ($c -and (Chamar DELETE "/contatos/$($c.id)").Status -eq 204) { $apagados++ }
 }
 Write-Host "  $apagados contatos apagados"
+# A empresa do T-RES-06. Ainda não existe rota de cancelamento (bloco 14): psql como superusuário, que
+# ignora o RLS, e o ON DELETE CASCADE leva o usuário junto. Só UUID entra no SQL (nada de texto livre).
+if ($script:TenantCadastro -match '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') {
+  $ErrorActionPreference = 'Continue'
+  $saida = & docker compose exec -T postgres psql -U postgres -d orbitati -tAc "DELETE FROM orbita.tenants WHERE id = '$($script:TenantCadastro)'" 2>$null
+  Write-Host "  empresa Demo T-RES-06 apagada ($("$saida".Trim()))"
+}
 
 Write-Host ''
 if ($script:Falhas -eq 0) {

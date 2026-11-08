@@ -33,6 +33,31 @@ function inteiro(nome, valor, padrao, min, max) {
   return n;
 }
 
+/**
+ * Base do link dos e-mails (contrato, seção 4): ${PORTAL_URL}/confirmar-email?token=...
+ * Obrigatória e validada na subida: sem ela, o link sairia quebrado em todo cadastro, e ninguém perceberia
+ * até um cliente reclamar. Nunca há "localhost" no código: local é http://localhost:8080 pelo .env.
+ */
+export function validarPortalUrl(valor) {
+  let url;
+  try {
+    url = new URL(valor);
+  } catch {
+    throw new Error('PORTAL_URL precisa ser uma URL http(s), ex.: http://localhost:8080.');
+  }
+  if (!['http:', 'https:'].includes(url.protocol) || url.search || url.hash) {
+    throw new Error('PORTAL_URL precisa ser uma URL http(s), sem query string, ex.: http://localhost:8080.');
+  }
+  return url.href.replace(/\/+$/, ''); // sem barra no fim: o código acrescenta "/confirmar-email"
+}
+
+/**
+ * Esconde o valor de ?token= na URL que vai para o log. O Fastify registra a URL inteira em todo
+ * "incoming request", e o link de confirmação (24 h) e o de exportação (bloco 14, 30 dias) carregam o
+ * token na query: no log, ele valeria como credencial para quem lesse o arquivo (T-OBS-04).
+ */
+export const ocultarToken = (url) => String(url).replace(/([?&]token=)[^&#]*/gi, '$1[oculto]');
+
 // Rede interna: loopback (127/8, ::1), privadas (10/8, 172.16/12, 192.168/16, fc00::/7) e link-local.
 // É de onde o Nginx do Portal fala com a API (rede do compose ou do cluster).
 const redeInterna = proxyAddr.compile(['loopback', 'uniquelocal', 'linklocal']);
@@ -67,6 +92,7 @@ export function confiarNoProxy(saltos) {
  * @param {boolean} [opcoes.limiteEmMemoria]  SÓ TESTES: contador do rate limit em memória, sem Redis
  * @param {number} [opcoes.limiteCadastroPorMin]  padrão: env LIMITE_CADASTRO_POR_MIN ou 60
  * @param {number} [opcoes.trustProxySaltos]  proxies confiáveis na frente da API (padrão: env TRUST_PROXY_SALTOS ou 1)
+ * @param {string} [opcoes.portalUrl]  base dos links de e-mail (padrão: env PORTAL_URL, obrigatório)
  * @param {object|boolean} [opcoes.logger]
  */
 export function buildApp(opcoes = {}) {
@@ -97,10 +123,27 @@ export function buildApp(opcoes = {}) {
   // 0 = ninguém na frente (API exposta direto, ex.: NodePort do kind): o header é ignorado.
   // Ver confiarNoProxy() acima: só confia se o proxy tiver IP de rede interna.
   const trustProxySaltos = inteiro('TRUST_PROXY_SALTOS', opcoes.trustProxySaltos ?? process.env.TRUST_PROXY_SALTOS, 1, 0, 10);
+  const portalUrl = validarPortalUrl(opcoes.portalUrl ?? process.env.PORTAL_URL);
+
+  // Logger: o serializer de req é o padrão do Fastify, mas com o ?token= escondido (ocultarToken).
+  // Vale também para o logger que o teste passa (opcoes.logger), para que o T-OBS-04 meça o que roda.
+  const logger = opcoes.logger === false ? false : {
+    level: process.env.LOG_NIVEL ?? 'info',
+    ...(typeof opcoes.logger === 'object' ? opcoes.logger : {}),
+    serializers: {
+      req: (req) => ({
+        method: req.method,
+        url: ocultarToken(req.url),
+        host: req.host,
+        remoteAddress: req.ip,
+        remotePort: req.socket?.remotePort,
+      }),
+    },
+  };
 
   const app = Fastify({
     trustProxy: confiarNoProxy(trustProxySaltos),
-    logger: opcoes.logger ?? { level: process.env.LOG_NIVEL ?? 'info' },
+    logger,
     requestIdHeader: false, // lido e validado no genReqId abaixo
     genReqId: (req) => {
       const recebido = req.headers['x-request-id'];
@@ -187,7 +230,7 @@ export function buildApp(opcoes = {}) {
   registrarLimite(app, { redis: redisDoLimite });
   app.register(rotasSaude, { pool, fila });
   app.register(rotasPlanos);
-  app.register(rotasAuth, { pool, limiteCadastroPorMin });
+  app.register(rotasAuth, { pool, fila, limiteCadastroPorMin, portalUrl });
   app.register(rotasContatos, { pool });
   app.register(rotasImportacoes, { pool, fila });
   app.register(rotasInterno, { pool });

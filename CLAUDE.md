@@ -27,7 +27,8 @@ Se uma tarefa exigir contrariar um ADR, **pare e pergunte**. Não mude a decisã
 
 - Node.js 22, JavaScript ESM (sem TypeScript, sem etapa de build), npm workspaces
 - API: Fastify 5, `@fastify/jwt`, `@fastify/rate-limit`, `pg`, `@node-rs/argon2`
-- Fila: Redis 7 + BullMQ; worker de importação com `csv-parse`
+- Fila: Redis 7 + BullMQ; worker de importação com `csv-parse`; worker de notificações com `nodemailer` 10.2.1
+- E-mail local: Mailpit `axllent/mailpit:v1.32.0` (SMTP só na rede interna; interface e API em `127.0.0.1:8025`)
 - Banco: PostgreSQL 16, migrações em SQL puro em `db/migrations/NNN_nome.sql`
 - Testes: Vitest (`npm test`) contra a stack do Docker Compose
 - Local: Docker Compose. Cluster: kind `saas` (Docker Desktop, Windows), manifests em `deploy/k8s/`
@@ -48,11 +49,13 @@ Se uma tarefa exigir contrariar um ADR, **pare e pergunte**. Não mude a decisã
 docker-compose.carga.yml override SÓ do ensaio do CQ-01: postgres com 1 vCPU e 2 GB (instância do ADR-001); usado pelo medir-cq01.ps1 -RecursosProducao
 services/api-contatos/   porta de entrada: auth, contatos, importações, /planos, rotas /interno; test/ = unitários sem stack (T-ISO-13, T-OBS-03, T-RES-07)
 services/importacao/     worker BullMQ: lê o CSV do job, valida, envia lotes à API; /saude interno na 3001 (sem porta publicada); test/ = unitários sem stack
+services/notificacoes/   worker BullMQ da fila "emails" (bloco 10): monta e envia o e-mail por SMTP (Mailpit); sem banco; /saude interno na 3001; test/ = unitários
 db/init/                 cria papéis do Postgres (roda só no primeiro boot)
 db/migrations/           schemas, tabelas, RLS, grants
 db/migrate.js            aplica migrações (imagem orbitati/migrate: db/Dockerfile, pacote próprio fora dos workspaces)
 deploy/k8s/              manifests do kind (namespace orbitati), aplicados pelo scripts/deploy-kind.ps1; exemplos/ = Secret com valores falsos (fora do apply)
-tests/                   testes de integração (isolamento, RLS, importação); tests/apoio/ = funções comuns (não são testes)
+tests/                   testes de integração (isolamento, RLS, importação, confirmação de e-mail, CQ-03); tests/apoio/ = funções comuns, inclusive mailpit.js (não são testes)
+docs/ensaios/            relatórios datados de medição (CQ-01, CQ-03, Lighthouse)
 tests/carga/             k6 (CQ-01): cq01.js (cenários), janelas.js (veredito "na janela" x "geral") e teste; resultados/ = saída do medir-cq01.ps1 (k6.json fora do git)
 scripts/                 seed.js (contas de demo), deploy-kind.ps1 (bloco 6), demo-isolamento.ps1, demo-degradacao.ps1 (T-RES), ensaio-reprocessamento.ps1 (T-IMP-14), medir-cq01.ps1 (CQ-01, bloco 9) e utilitários
 web/                     Portal Web: SPA React (src/), nginx (nginx/), Dockerfile, design system
@@ -64,20 +67,22 @@ web/e2e/                 E2E e capturas (Playwright); capturas em web/e2e/captur
 
 ```
 npm install                           # dependências da raiz (Vitest, pg) e dos services/*
-npm run env                           # gera o .env com senhas aleatórias; nunca sobrescreve um .env existente
-docker compose up -d --build --wait   # sobe tudo (postgres, redis, migrate, api, importacao)
+npm run env                           # cria o .env (senhas aleatórias) ou só acrescenta as chaves novas do .env.example; rode depois de todo git pull
+docker compose up -d --build --wait   # sobe tudo (postgres, redis, migrate, api, importacao, notificacoes, mailpit)
 docker compose run --rm migrate       # aplica migrações pendentes
 npm test                              # todos os testes (stack precisa estar no ar)
 TESTES_LENTOS=1 npm test              # inclui o T-IMP-13 (~25 s: prova a pausa de 500 ms); CI e antes de entrega
 npm run seed                          # tenants de demonstração DevSolo e TechConsult (idempotente; SEED_URL)
 powershell -ExecutionPolicy Bypass -File .\scripts\demo-isolamento.ps1 [-SemPausa] [-BaseUrl <url>]
-powershell -ExecutionPolicy Bypass -File .\scripts\demo-degradacao.ps1 [-SemPausa]   # para importacao, redis e postgres e religa (T-RES-01 a 05 e 07)
+powershell -ExecutionPolicy Bypass -File .\scripts\demo-degradacao.ps1 [-SemPausa]   # para importacao, redis e postgres e religa (T-RES-01 a 07; o 06 é o cadastro sem a fila de e-mail)
 powershell -ExecutionPolicy Bypass -File .\scripts\ensaio-reprocessamento.ps1 [-Quedas 2]  # T-IMP-14: mata o worker no meio de 5.000 linhas (1 a 3 min)
 powershell -ExecutionPolicy Bypass -File .\scripts\medir-cq01.ps1 [-RecursosProducao] [-ManterDados]   # CQ-01 com e sem mitigação (~8 min); no fim devolve o worker a 100/500, apaga os tenants e (com -RecursosProducao) recria o postgres sem limite
 docker compose --profile carga run --rm k6 run /scripts/cq01.js   # só o k6 (grafana/k6:1.3.0), na rede do compose
-docker compose logs -f api-contatos importacao
+npx vitest run tests/cq03-onboarding.test.js   # só o CQ-03 (20 cadastros; imprime p50, p90 e máximo)
+docker compose logs -f api-contatos importacao notificacoes
 powershell -ExecutionPolicy Bypass -File .\scripts\deploy-kind.ps1 [-SemBuild] [-SemSeed]  # kind "saas": build, kind load, apply, migração, rollout restart, seed
 kubectl get pods -n orbitati          # estado no kind (nunca imprima o Secret: nada de get secret -o yaml)
+kubectl -n orbitati port-forward svc/mailpit 18025:8025   # caixa do Mailpit do kind em http://localhost:18025
 docker compose down -v                # derruba e APAGA os dados (reset total)
 ```
 
@@ -96,7 +101,12 @@ npm run lighthouse                    # Lighthouse mobile em /entrar e /contatos
 ```
 
 API local: http://localhost:3000 · no kind: http://localhost:30080 · Portal: http://localhost:8080
-(hoje pelo `docker run` acima; o serviço `web` entra no compose na Fase 6 do bloco 13)
+(hoje pelo `docker run` acima; o serviço `web` entra no compose na Fase 6 do bloco 13) · Mailpit: http://localhost:8025
+
+`PORTAL_URL` (obrigatória na API; a API não sobe sem ela) é a base do link do e-mail:
+`${PORTAL_URL}/confirmar-email?token=...`. Local `http://localhost:8080` (`.env`); no kind `http://localhost:30080`
+no manifesto, que hoje é a API e dá 404 no link até a Fase 6 (N1 em `docs/pendencias-bloco-7.md`). Nunca
+"localhost" no código.
 
 Variáveis do Portal:
 
@@ -150,6 +160,9 @@ Variáveis do Portal:
 | Rate limit por tenant | 60 req/min por usuário permitido no plano (individual 1 × 60 = 60 · equipe 10 × 60 = 600); 60/min = um clique por segundo em rajada |
 | Armazenamento do rate limit | **Redis** (a API roda com 2 réplicas no kind; em memória cada réplica contaria separado e o limite dobraria). Redis fora → `skipOnError: true`, o limite é ignorado em vez de derrubar a API |
 | Rate limit de login | 10 req/min por IP + e-mail |
+| Rate limit de confirmação de e-mail | 10 req/min por IP (`GET /auth/confirmar`; mesmo número do login: uma pessoa clica 1 ou 2 vezes). No kind vira global (K2) |
+| Link de confirmação de e-mail | JWT de **24 h** com `JWT_SEGREDO` e `finalidade: "confirmar-email"`. Não serve como sessão (401) e a sessão não serve para confirmar (400). O login não exige confirmação |
+| Job de e-mail (fila `emails`) | 5 tentativas, backoff exponencial de 2 s; `removeOnComplete`; falha fica 24 h (`removeOnFail`, a validade do link); `jobId = confirmar-cadastro-<usuario_id>` (**sem `:`**, que o BullMQ 6 recusa); worker com `concurrency: 5` |
 | Rate limit de cadastro | `LIMITE_CADASTRO_POR_MIN` por IP (padrão 60). A suíte manda um `X-Forwarded-For` 203.0.113.N por arquivo (`tests/apoio/api.js`) |
 | IP real atrás do proxy | `TRUST_PROXY_SALTOS` (padrão 1; kind com NodePort: 0), e só se a conexão vier de rede interna. O Fastify ≥ 5.12.1 ignora `trustProxy` numérico (`docs/pendencias-bloco-7.md`, J4 a J6) |
 | Token de acesso | 15 min |
@@ -175,7 +188,11 @@ no mesmo passo e registre a mudança.
   (decisão 6; com RLS, "de outro tenant" e "inexistente" são indistinguíveis). Fica no `setErrorHandler` do
   `app.js`: rota nova com `:id` ganha o evento sozinha (T-ISO-19).
 - `GET /saude` → `{ db: "ok"|"fora", fila: "ok"|"fora" }`. Fila fora não derruba a API: só
-  `POST /importacoes` responde 503 (conexão BullMQ com `enableOfflineQueue: false`).
+  `POST /importacoes` responde 503 (conexão BullMQ com `enableOfflineQueue: false`). O cadastro conclui com a
+  fila fora e só registra `warn` `evento: "email_nao_enfileirado"` (T-RES-06).
+- **Nunca registre token de link nem e-mail completo** (T-OBS-04). A API troca `?token=` por `[oculto]` no
+  serializer de `req` (`app.js`); o nginx do Portal registra `$uri` (sem query); o worker de e-mail registra
+  `m***@dominio` e, em erro de SMTP, só os códigos (a mensagem do servidor repete o destinatário).
 
 ## Como trabalhar neste repositório
 

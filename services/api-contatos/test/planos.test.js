@@ -4,12 +4,15 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
 
+// Base fictícia dos links de e-mail (PORTAL_URL). Só precisa ser uma URL válida.
+const PORTAL_URL_TESTE = 'http://portal.teste';
+
 const POOL_FALSO = { query: async () => ({ rows: [] }) };
-const FILA_FALSA = { verificar: async () => true, enfileirar: async () => {} };
+const FILA_FALSA = { verificar: async () => true, enfileirar: async () => {}, enfileirarEmail: async () => {} };
 
 let app;
 beforeAll(async () => {
-  app = buildApp({ jwtSegredo: 'x'.repeat(32), jwtServicoSegredo: 'y'.repeat(32), pool: POOL_FALSO, fila: FILA_FALSA, limiteEmMemoria: true, logger: false });
+  app = buildApp({ jwtSegredo: 'x'.repeat(32), jwtServicoSegredo: 'y'.repeat(32), pool: POOL_FALSO, fila: FILA_FALSA, limiteEmMemoria: true, portalUrl: PORTAL_URL_TESTE, logger: false });
   await app.ready();
 });
 afterAll(() => app.close());

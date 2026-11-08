@@ -1,0 +1,78 @@
+# Mailpit (bloco 10): caixa de e-mail falsa, como no compose. Recebe por SMTP o que o serviço de
+# notificações envia; nenhum e-mail sai para a internet.
+#
+# Só ClusterIP: nem o SMTP nem a interface ficam expostos fora do cluster (os e-mails carregam links que
+# valem 24 h). Para ver a caixa:
+#   kubectl -n orbitati port-forward svc/mailpit 8025:8025    e abrir http://localhost:8025
+# (com o compose no ar, a 8025 do host já está ocupada: use 18025:8025)
+#
+# Na VM, o Mailpit sai e entra o provedor real (pendência em docs/pendencias-bloco-7.md).
+apiVersion: v1
+kind: Service
+metadata:
+  name: mailpit
+  namespace: orbitati
+spec:
+  selector:
+    app: mailpit
+  ports:
+    - name: smtp
+      port: 1025
+      targetPort: 1025
+    - name: http
+      port: 8025
+      targetPort: 8025
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mailpit
+  namespace: orbitati
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mailpit
+  template:
+    metadata:
+      labels:
+        app: mailpit
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534   # nobody: a imagem roda como root por padrão, e não precisa (portas > 1024)
+        runAsGroup: 65534
+      containers:
+        - name: mailpit
+          image: axllent/mailpit:v1.32.0   # mesma versão fixa do compose
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MP_MAX_MESSAGES
+              value: "1000"
+          ports:
+            - containerPort: 1025
+            - containerPort: 8025
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8025
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 1025
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { cpu: 200m, memory: 128Mi }
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: { medium: Memory, sizeLimit: 64Mi }

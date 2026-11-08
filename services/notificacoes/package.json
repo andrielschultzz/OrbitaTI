@@ -1,0 +1,20 @@
+{
+  "name": "@orbitati/notificacoes",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Serviço de Notificações do OrbitaTI: worker BullMQ da fila \"emails\" que envia por SMTP com nodemailer. Sem banco.",
+  "main": "src/worker.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/worker.js"
+  },
+  "dependencies": {
+    "bullmq": "6.4.2",
+    "ioredis": "6.0.0",
+    "nodemailer": "10.2.1",
+    "pino": "10.4.0"
+  }
+}

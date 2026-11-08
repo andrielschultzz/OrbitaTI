@@ -235,6 +235,24 @@ as importações correspondentes ficam `na_fila` (ou `processando`) para sempre 
 
 É o mesmo efeito do risco I1, a seguir, e a mesma mitigação resolve os dois.
 
+### Fila de e-mails: API → Notificações (bloco 10, 08/11/2026)
+
+O mesmo padrão da importação, aplicado ao e-mail de confirmação de cadastro. **Não muda nenhuma decisão
+deste ADR**: é a opção 1B (fila) para um segundo consumidor.
+
+| Ponto | Como ficou | Por quê |
+|---|---|---|
+| Fila | `emails`, na mesma conexão Redis da API (`fila.js`) | Um Redis, duas filas: nada novo para operar |
+| Quando enfileira | **Depois do COMMIT** do cadastro | Antes, um ROLLBACK deixaria no ar um e-mail para um usuário que não existe |
+| Fila fora | O cadastro responde 201 e registra `warn` (`email_nao_enfileirado`) | O e-mail não pode impedir o onboarding; o login não exige confirmação (T-RES-06) |
+| O que vai no job | `{tipo, para, nome, link, request_id, tenant_id}` | O Serviço de Notificações **não tem banco**, nem papel no Postgres: tudo o que o e-mail precisa vem no job |
+| Idempotência | `jobId = confirmar-cadastro-<usuario_id>` | O BullMQ ignora um segundo `add` com o mesmo id. **Sem `:`**: o BullMQ 6 recusa `:` em id próprio (achado N6) |
+| Tentativas | 5, backoff exponencial de 2 s; `removeOnComplete`; `removeOnFail` de 24 h | O job tem e-mail e um link que vale 24 h como credencial: não fica no Redis depois de usado |
+| Worker | `concurrency: 5`, nodemailer, SMTP do Mailpit (local e kind) | O trabalho é esperar a rede, não CPU nem banco. Dado inválido é `UnrecoverableError`: não tenta de novo |
+| Token do link | JWT com `JWT_SEGREDO`, 24 h, `finalidade: "confirmar-email"` | Recusa explícita nos dois lados: o link não abre sessão (T-AUTH-11) e a sessão não confirma e-mail (T-AUTH-12). Decisão N3 em `pendencias-bloco-7.md` |
+
+**O que falta para a VM:** SMTP do provedor real com autenticação e TLS, e remetente com SPF/DKIM (N4).
+
 ### Riscos aceitos
 
 **I1 — A API morre entre o COMMIT e o enfileiramento.** O `POST /importacoes` grava a importação (`na_fila`),
@@ -296,8 +314,8 @@ lado de fora. Atrás do Nginx do Portal, a API só vê o IP do Nginx.
   kube-proxy faz o tráfego chegar com IP interno. Com 1, qualquer um forjaria o header. Passa para 1 quando o
   Nginx do Portal entrar na frente (Fase 6 do bloco 13).
 - **Risco aceito K2 do bloco 6** (não confundir com a decisão K2 do contrato): com 0, todos os clientes de `localhost:30080` chegam com o mesmo IP, e o limite de
-  cadastro vira global (60/min para todos juntos). Aceitável no laboratório, com um usuário só. Num cluster
-  real: `externalTrafficPolicy: Local` ou o Nginx na frente.
+  cadastro vira global (60/min para todos juntos). O de confirmação de e-mail (10/min por IP, bloco 10) também.
+  Aceitável no laboratório, com um usuário só. Num cluster real: `externalTrafficPolicy: Local` ou o Nginx na frente.
 - **Risco aceito J8:** com `TRUST_PROXY_SALTOS=1`, quem já está na rede interna (outro contêiner do compose,
   alguém no host chamando `127.0.0.1:3000`) pode mandar um IP diferente a cada tentativa e ganhar um contador
   de login novo. Quem está de fora não consegue:

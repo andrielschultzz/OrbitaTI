@@ -7,13 +7,16 @@
 import { describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
 
+// Base fictícia dos links de e-mail (PORTAL_URL). Só precisa ser uma URL válida.
+const PORTAL_URL_TESTE = 'http://portal.teste';
+
 const pool = (ok) => ({
   query: async () => {
     if (!ok) throw new Error('connect ECONNREFUSED (simulado)');
     return { rows: [{ '?column?': 1 }] };
   },
 });
-const fila = (ok) => ({ verificar: async () => ok, enfileirar: async () => {} });
+const fila = (ok) => ({ verificar: async () => ok, enfileirar: async () => {}, enfileirarEmail: async () => {} });
 
 const casos = [
   { db: true, filaOk: true, status: 200, corpo: { db: 'ok', fila: 'ok' } },
@@ -24,7 +27,7 @@ const casos = [
 
 describe('T-OBS-03: GET /saude', () => {
   it.each(casos)('db $corpo.db + fila $corpo.fila -> $status', async ({ db, filaOk, status, corpo }) => {
-    const app = buildApp({ jwtSegredo: 'x'.repeat(32), jwtServicoSegredo: 'y'.repeat(32), pool: pool(db), fila: fila(filaOk), limiteEmMemoria: true, logger: false });
+    const app = buildApp({ jwtSegredo: 'x'.repeat(32), jwtServicoSegredo: 'y'.repeat(32), pool: pool(db), fila: fila(filaOk), limiteEmMemoria: true, portalUrl: PORTAL_URL_TESTE, logger: false });
     try {
       const r = await app.inject({ method: 'GET', url: '/saude' });
       expect(r.statusCode).toBe(status);
@@ -35,8 +38,8 @@ describe('T-OBS-03: GET /saude', () => {
   });
 
   it('verificar() da fila que lança erro conta como fora, não como 500', async () => {
-    const quebrada = { verificar: async () => { throw new Error('boom'); }, enfileirar: async () => {} };
-    const app = buildApp({ jwtSegredo: 'x'.repeat(32), jwtServicoSegredo: 'y'.repeat(32), pool: pool(true), fila: quebrada, limiteEmMemoria: true, logger: false });
+    const quebrada = { verificar: async () => { throw new Error('boom'); }, enfileirar: async () => {}, enfileirarEmail: async () => {} };
+    const app = buildApp({ jwtSegredo: 'x'.repeat(32), jwtServicoSegredo: 'y'.repeat(32), pool: pool(true), fila: quebrada, limiteEmMemoria: true, portalUrl: PORTAL_URL_TESTE, logger: false });
     try {
       const r = await app.inject({ method: 'GET', url: '/saude' });
       expect(r.statusCode).toBe(200);

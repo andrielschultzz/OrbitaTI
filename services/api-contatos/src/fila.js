@@ -1,7 +1,10 @@
-// Fila de importações (BullMQ sobre Redis), do lado da API: só ENFILEIRA. Quem consome é o worker.
+// Filas BullMQ (Redis), do lado da API: só ENFILEIRA. Quem consome são os workers.
+//   importacoes  -> services/importacao    (bloco 4)
+//   emails       -> services/notificacoes  (bloco 10). Mesma conexão Redis, mesmas regras abaixo.
 //
 // Regra de ouro: Redis fora NÃO derruba a API. Só o POST /importacoes responde 503, e o /saude informa
-// {fila: "fora"} com status 200 (decisão 2). Para isso, nada aqui pode ficar esperando o Redis voltar:
+// {fila: "fora"} com status 200 (decisão 2). O cadastro conclui sem o e-mail (bloco 10, item 3). Para
+// isso, nada aqui pode ficar esperando o Redis voltar:
 //   - enableOfflineQueue: false  com o Redis fora, o comando falha na hora em vez de entrar numa fila
 //                                em memória esperando a reconexão (o que travaria a requisição);
 //   - skipWaitingForReady: true  o BullMQ não espera a conexão ficar "ready" antes do add();
@@ -11,6 +14,7 @@ import { Queue } from 'bullmq';
 import { Redis } from 'ioredis';
 
 export const NOME_FILA = 'importacoes';
+export const NOME_FILA_EMAILS = 'emails'; // o mesmo do services/notificacoes/src/worker.js
 const TIMEOUT_MS = 2_000;
 
 /** Opções de cada job (bloco 4, item 6; ADR-003). O worker lê attempts para saber quando desistir. */
@@ -20,6 +24,21 @@ export const OPCOES_JOB = {
   // O CSV (dado pessoal dos contatos, LGPD) vai no payload: não deve morar no Redis depois de usado.
   removeOnComplete: true,
   removeOnFail: { age: 24 * 60 * 60 }, // 24 h para investigar uma falha; depois some
+};
+
+/**
+ * Opções do job de e-mail (bloco 10).
+ *   5 tentativas (espera de 2, 4, 8 e 16 s): o SMTP do provedor cai por segundos, não por horas.
+ *   removeOnComplete   o payload tem o e-mail (dado pessoal) e o link com o token, que vale 24 h como
+ *                      credencial: não fica no Redis depois de enviado.
+ *   removeOnFail 24 h  tempo para investigar, igual à validade do token: depois disso o link já não
+ *                      vale nada e o job some.
+ */
+export const OPCOES_JOB_EMAIL = {
+  attempts: 5,
+  backoff: { type: 'exponential', delay: 2_000 },
+  removeOnComplete: true,
+  removeOnFail: { age: 24 * 60 * 60 },
 };
 
 /** Erro de "fila indisponível": a rota traduz para 503 FILA_INDISPONIVEL. */
@@ -35,7 +54,12 @@ function comTimeout(promessa, ms, mensagem) {
 
 /**
  * @param {string} redisUrl  ex.: redis://redis:6379
- * @returns {{ enfileirar(dados: object, jobId: string): Promise<void>, verificar(): Promise<boolean>, fechar(): Promise<void> }}
+ * @returns {{
+ *   enfileirar(dados: object, jobId: string): Promise<void>,
+ *   enfileirarEmail(dados: object, jobId: string): Promise<void>,
+ *   verificar(): Promise<boolean>,
+ *   fechar(): Promise<void>,
+ * }}
  */
 export function criarFila(redisUrl) {
   const redis = new Redis(redisUrl, {
@@ -50,37 +74,44 @@ export function criarFila(redisUrl) {
   // O estado real é lido em redis.status.
   redis.on('error', () => {});
 
-  // A Queue é criada só quando a conexão já está "ready" (na primeira importação). Motivo: ao nascer, ela
+  // Cada Queue é criada só quando a conexão já está "ready" (no primeiro add). Motivo: ao nascer, ela
   // manda um INFO ao Redis para checar a versão. Com a API subindo antes de a conexão ficar pronta e
   // enableOfflineQueue: false, esse INFO falha, e a Queue guarda a falha para sempre: todo add() seguinte
   // recebia "Stream isn't writeable" mesmo com o Redis no ar (achado no teste do bloco 4).
   // Se a inicialização falhar mesmo assim, a Queue é descartada e recriada na próxima tentativa.
-  let fila = null;
-  let pronta = null;
-  function obterFila() {
-    if (!fila) {
-      fila = new Queue(NOME_FILA, { connection: redis, skipWaitingForReady: true, defaultJobOptions: OPCOES_JOB });
+  const filas = new Map(); // nome -> { fila, pronta }
+  function obterFila(nome, defaultJobOptions) {
+    let item = filas.get(nome);
+    if (!item) {
+      const fila = new Queue(nome, { connection: redis, skipWaitingForReady: true, defaultJobOptions });
       fila.on('error', () => {});
-      const esta = fila;
-      pronta = fila.waitUntilReady().catch((erro) => {
-        if (fila === esta) fila = null; // a próxima chamada cria outra
+      const pronta = fila.waitUntilReady().catch((erro) => {
+        if (filas.get(nome)?.fila === fila) filas.delete(nome); // a próxima chamada cria outra
         throw erro;
       });
+      item = { fila, pronta };
+      filas.set(nome, item);
     }
-    return pronta.then(() => fila);
+    return item.pronta.then(() => item.fila);
+  }
+
+  async function adicionar(nome, opcoesPadrao, tipoJob, dados, jobId) {
+    if (redis.status !== 'ready') throw new FilaIndisponivel(`redis ${redis.status}`);
+    try {
+      const add = obterFila(nome, opcoesPadrao).then((q) => q.add(tipoJob, dados, { jobId }));
+      await comTimeout(add, TIMEOUT_MS, 'add demorou demais');
+    } catch (erro) {
+      throw erro instanceof FilaIndisponivel ? erro : new FilaIndisponivel(erro.message);
+    }
   }
 
   return {
-    async enfileirar(dados, jobId) {
-      if (redis.status !== 'ready') throw new FilaIndisponivel(`redis ${redis.status}`);
-      try {
-        // jobId = importacao_id: o BullMQ ignora um segundo add com o mesmo id (regra 8, idempotência).
-        const adicionar = obterFila().then((q) => q.add('importar', dados, { jobId }));
-        await comTimeout(adicionar, TIMEOUT_MS, 'add demorou demais');
-      } catch (erro) {
-        throw erro instanceof FilaIndisponivel ? erro : new FilaIndisponivel(erro.message);
-      }
-    },
+    // jobId = importacao_id: o BullMQ ignora um segundo add com o mesmo id (regra 8, idempotência).
+    enfileirar: (dados, jobId) => adicionar(NOME_FILA, OPCOES_JOB, 'importar', dados, jobId),
+
+    // jobId SEM ":" — o BullMQ 6 recusa ":" em id próprio ("Custom Id cannot contain :"), porque é o
+    // separador das chaves no Redis. Com ":", todo add falharia e o cadastro só registraria o aviso.
+    enfileirarEmail: (dados, jobId) => adicionar(NOME_FILA_EMAILS, OPCOES_JOB_EMAIL, dados.tipo, dados, jobId),
 
     async verificar() {
       if (redis.status !== 'ready') return false;
@@ -92,7 +123,7 @@ export function criarFila(redisUrl) {
     },
 
     async fechar() {
-      await fila?.close().catch(() => {});
+      await Promise.all([...filas.values()].map(({ fila }) => fila.close().catch(() => {})));
       redis.disconnect();
     },
   };

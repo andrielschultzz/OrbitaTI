@@ -143,6 +143,8 @@ O tempo até o primeiro login inclui o usuário decidir abrir a caixa de entrada
 
 Teste de ponta a ponta contra caixa de e-mail de teste, executado a cada deploy, medindo do POST à chegada da mensagem. **Falha se o p90 de 20 execuções passar de 45 s.**
 
+**Implementado no bloco 10:** [`tests/cq03-onboarding.test.js`](../tests/cq03-onboarding.test.js) (T-CQ03-01), com o Mailpit como caixa de teste, roda no `npm test` e no CI. Primeira medição: [`ensaios/cq03-2026-11-08.md`](ensaios/cq03-2026-11-08.md). O teste mede a parte que a arquitetura controla (banco, fila, worker e SMTP local); os 30 s do provedor real não existem localmente.
+
 ---
 
 <a id="cq-04"></a>
