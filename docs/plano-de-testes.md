@@ -89,24 +89,25 @@ A suíte é uma **tabela de rotas** (método, caminho) percorrida em laço: rota
 
 | ID | O que verifica | Origem | Pré-condição | Passos | Resultado esperado | Tipo | Ferramenta | Bloco | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| T-ISO-01 | Leitura cruzada por id | CQ-02; regra 5 | contato de B | A faz `GET /contatos/:idB` | 404, corpo sem dado de B | Integração | Vitest | 3 | planejado |
-| T-ISO-02 | Alteração cruzada | CQ-02; regra 5 | idem | A faz `PATCH /contatos/:idB` | 404; B relê o contato e ele está igual | Integração | Vitest | 3 | planejado |
-| T-ISO-03 | Exclusão cruzada | CQ-02; regra 5 | idem | A faz `DELETE /contatos/:idB` | 404; o contato continua existindo para B | Integração | Vitest | 3 | planejado |
-| T-ISO-04 | Listagem e busca não misturam tenants | CQ-02 | A e B com contatos de nomes parecidos | A faz `GET /contatos` e `GET /contatos?busca=<termo comum>` | Nenhum id de B na resposta | Integração | Vitest | 3 | planejado |
-| T-ISO-05 | 404 cruzado é indistinguível de "não existe" | CQ-02 ("sem confirmar a existência") | idem | A faz `GET` no id de B e num UUID aleatório | Mesmo status e mesmo corpo nas duas respostas | Integração | Vitest | 3 | planejado |
-| T-ISO-06 | `tenant_id` no corpo é ignorado | Regra 1; ADR-002 | — | A faz `POST /contatos` com `{"nome":"x","tenant_id":"<B>"}` | Contato criado em A (o Fastify descarta a propriedade extra); B não o vê | Integração | Vitest | 3 | planejado |
-| T-ISO-07 | `tenant_id` na query string é ignorado | Regra 1; ADR-002 | contatos em A e B | A faz `GET /contatos?tenant_id=<B>` | Só contatos de A | Integração | Vitest | 3 | planejado |
+| T-ISO-01 | Leitura cruzada por id | CQ-02; regra 5 | contato de B | A faz `GET /contatos/:idB` | 404, corpo sem dado de B | Integração | Vitest | 3 | automatizado |
+| T-ISO-02 | Alteração cruzada | CQ-02; regra 5 | idem | A faz `PATCH /contatos/:idB` | 404; B relê o contato e ele está igual | Integração | Vitest | 3 | automatizado |
+| T-ISO-03 | Exclusão cruzada | CQ-02; regra 5 | idem | A faz `DELETE /contatos/:idB` | 404; o contato continua existindo para B | Integração | Vitest | 3 | automatizado |
+| T-ISO-04 | Listagem e busca não misturam tenants | CQ-02 | A e B com contatos de nomes parecidos | A faz `GET /contatos` e `GET /contatos?busca=<termo comum>` | Nenhum id de B na resposta | Integração | Vitest | 3 | automatizado |
+| T-ISO-05 | 404 cruzado é indistinguível de "não existe" | CQ-02 ("sem confirmar a existência") | idem | A faz `GET` no id de B e num UUID aleatório | Mesmo status e mesmo corpo nas duas respostas | Integração | Vitest | 3 | automatizado |
+| T-ISO-06 | `tenant_id` no corpo é ignorado | Regra 1; ADR-002 | — | A faz `POST /contatos` com `{"nome":"x","tenant_id":"<B>"}` | Contato criado em A (o Fastify descarta a propriedade extra); B não o vê | Integração | Vitest | 3 | automatizado |
+| T-ISO-07 | `tenant_id` na query string é ignorado | Regra 1; ADR-002 | contatos em A e B | A faz `GET /contatos?tenant_id=<B>` | Só contatos de A | Integração | Vitest | 3 | automatizado |
 | T-ISO-08 | Importação de outro tenant | CQ-02; regra 5 | importação de B | A faz `GET /importacoes/:idB` | 404 | Integração | Vitest | 4 | planejado |
 | T-ISO-09 | Token de serviço de A não grava lote em importação de B | Regra 7; CQ-02 | idem | Token de serviço com `tenant_id = A` em `POST /interno/importacoes/:idB/lotes` | 404; nenhum contato novo em A nem em B | Integração | Vitest | 4 | planejado |
-| T-ISO-10 | JWT adulterado | ADR-002 | token de A | Trocar o `tenant_id` do payload para B **sem reassinar** e chamar `GET /contatos` | 401 | Integração | Vitest | 3 | planejado |
-| T-ISO-11 | JWT expirado | ADR-002 | — | Token assinado com `JWT_SEGREDO` e `exp` no passado | 401 | Integração | Vitest | 3 | planejado |
+| T-ISO-10 | JWT adulterado | ADR-002 | token de A | Trocar o `tenant_id` do payload para B **sem reassinar** e chamar `GET /contatos` | 401 | Integração | Vitest | 3 | automatizado |
+| T-ISO-11 | JWT expirado | ADR-002 | — | Token assinado com `JWT_SEGREDO` e `exp` no passado | 401 | Integração | Vitest | 3 | automatizado |
 | T-ISO-12 | Token de serviço não serve em rota de usuário | Regra 7 (dois segredos) | — | Token de serviço válido em `GET /contatos` | 401 | Integração | Vitest | 4 | planejado |
-| T-ISO-13 | Nenhuma rota aceita `tenant_id` | Regra 1; ADR-002 | — | `buildApp()` + hook `onRoute`: procurar "tenant" no caminho, na querystring e no schema do corpo | Nenhuma ocorrência; o teste falha se aparecer | Unitário | Vitest | 3 | planejado |
+| T-ISO-13 | Nenhuma rota aceita `tenant_id` | Regra 1; ADR-002 | — | `buildApp()` + hook `onRoute`: procurar "tenant" no caminho e nos nomes de propriedade dos schemas de params, querystring e corpo. Contra-teste: registrar rotas proibidas e conferir que o verificador acusa (`services/api-contatos/test/rotas-sem-tenant.test.js`) | Nenhuma ocorrência; o teste falha se aparecer | Unitário | Vitest | 3 | automatizado |
 | T-ISO-14 | A regra acima bloqueia a build | CQ-02 ("build falha se a suíte falhar") | CI ativo | Branch descartável com rota `/tenants/:tenant_id/contatos`; push | Workflow vermelho; o branch é apagado | Integração contínua | GitHub Actions | 8 | planejado |
-| T-ISO-15 | Toda rota com dado de tenant está na tabela da suíte | CQ-02 ("100% das rotas cobertas") | — | Comparar as rotas registradas no `onRoute` (menos `/auth/*`, `/saude`, `/planos`) com a tabela de `isolamento.test.js` | Rota fora da tabela → falha. **Proposta nova** (seção 5) | Unitário | Vitest | 3 | planejado |
+| T-ISO-15 | Toda rota com dado de tenant está na tabela da suíte | CQ-02 ("100% das rotas cobertas") | — | (a) As rotas com `config.publica` são exatamente as de uma lista fixa (hoje `GET /saude`, `POST /auth/cadastro`, `POST /auth/login`; os blocos 4, 10 e 14 acrescentam `/planos`, `/auth/confirmar` e `/conta/exportacao/arquivo`). (b) As demais rotas registradas no `onRoute` (sem HEAD) são exatamente as da tabela de `isolamento.test.js` | Rota fora da tabela, rota fantasma na tabela ou rota pública não prevista → falha. A lista fixa impede que marcar uma rota como pública seja um jeito de escapar da autenticação e da suíte ao mesmo tempo | Unitário | Vitest | 3 | automatizado |
 | T-ISO-16 | Interações de contato de outro tenant | CQ-02 | contato de B | A faz `GET` e `POST /contatos/:idB/interacoes` | 404 nos dois; nenhuma interação criada | Integração | Vitest | 12 | planejado |
 | T-ISO-17 | "Esfriando" não mostra contatos de outro tenant | CQ-02 | contatos frios em B | A faz `GET /contatos/esfriando` | Nenhum id de B | Integração | Vitest | 12 | planejado |
 | T-ISO-18 | Exportação só traz o próprio tenant | CQ-02; LGPD | dados em A e B | A (admin) faz `GET /conta/exportacao` | Nenhum id, e-mail ou nome de B no JSON | Integração | Vitest | 14 | planejado |
+| T-ISO-19 | Todo 404 em rota com `:id` gera o evento `recurso_nao_encontrado` no log | CQ-02 ("evento registrado no log"); decisão 6 | contato de B; API montada no processo do teste (`buildApp()` com o log numa lista) | Para cada linha da tabela de rotas com `:id`, A chama a rota com o id de B; depois, `GET /contatos/nao-e-uuid` e uma rota inexistente | Um evento por 404, com `tenant_id` de A, `metodo`, `rota` (`/contatos/:id`) e `id`. O `:id` que não é UUID também gera o evento; rota inexistente não gera | Integração | Vitest | 3 | automatizado |
 
 **Cobertura de rotas na Etapa 2.** O [`atributos.md`](atributos.md#cq-02) dimensiona **24 casos** =
 12 rotas previstas no C4 × 2 (leitura e escrita cruzadas). Essa conta vale para o produto completo.
@@ -243,7 +244,7 @@ se falhar, o relatório diz que falhou e propõe a causa (regra do bloco 9).
 | Cenário | Medida | Testes |
 |---|---|---|
 | CQ-01 — vizinho barulhento | p95 < 800 ms; p100 < 2 s; 0 erros 5xx | T-CQ01-01, T-CQ01-02; apoio: T-IMP-13 (pausa), T-IMP-08 (simultâneas), T-RL-01 |
-| CQ-02 — isolamento | 100% das tentativas → 404; 100% das rotas; build falha | T-ISO-01 a T-ISO-18, T-IMP-02, T-RLS-01 a T-RLS-16; pela tela: T-WEB-04 |
+| CQ-02 — isolamento | 100% das tentativas → 404; 100% das rotas; build falha | T-ISO-01 a T-ISO-19, T-IMP-02, T-RLS-01 a T-RLS-16; pela tela: T-WEB-04 |
 | CQ-03 — onboarding | p90 < 45 s; 0 ações manuais | T-CQ03-01, T-AUTH-01, T-RES-06 |
 | CQ-04 — disponibilidade | 99,5% em horário comercial; ≤ 79 min/mês | T-CQ04-01, T-CQ04-02; apoio: T-RES-01, T-RES-04 |
 | CQ-05 — recuperação | RPO ≤ 15 min; RTO ≤ 4 h | T-CQ05-01, T-CQ05-02, T-CQ05-03 (só RTO; o RPO não é testado, ver lacunas) |
@@ -288,7 +289,7 @@ se falhar, o relatório diz que falhou e propõe a causa (regra do bloco 9).
 
 | # | O que | Por que ficou sem teste | O que fazer |
 |---|---|---|---|
-| L1 | CQ-02 pede "evento registrado no log de auditoria" no 404 cruzado | Não há log de auditoria previsto em nenhum bloco ([`pendencias-bloco-7.md`](pendencias-bloco-7.md), seção 3) | Decidir no bloco 7: implementar (e criar T-ISO-19) ou tirar do cenário |
+| L1 | CQ-02 pede "evento registrado no log de auditoria" no 404 cruzado | **Resolvida (decisão 6, bloco 3).** Com RLS, a API não distingue "de outro tenant" de "inexistente" (os dois são 0 linhas). Por isso todo 404 em rota com `:id` gera o evento `recurso_nao_encontrado` com `tenant_id`, rota e id, coberto pelo T-ISO-19 | Bloco 7: ajustar o texto do CQ-02 em `atributos.md` ([`pendencias-bloco-7.md`](pendencias-bloco-7.md), C11) |
 | L2 | CQ-04: 99,5% ao mês | 30 amostras não conseguem medir 0,5% (conta na seção 4) | Declarar no relatório que é medição de método; a medida real exige a sonda rodando o mês em produção |
 | L3 | CQ-05: RPO de 15 min | Depende de arquivamento contínuo de WAL, que é recurso do banco gerenciado | Declarar no relatório do bloco 11; o ensaio local prova só o RTO e o procedimento |
 | L4 | CQ-03: parte do provedor de e-mail | Localmente não existe provedor real (96% do orçamento de 45 s) | Ressalva no relatório do bloco 10 |
@@ -366,7 +367,7 @@ Problemas que os testes vão expor. A solução sugerida vem ao lado, para decid
 
 | Etapa | Blocos | Precisa passar |
 |---|---|---|
-| **Etapa 2** — núcleo multi-tenant | 1 a 7 | `npm test` verde com T-RLS-01 a 17, T-ISO-01 a 13 e 15, T-AUTH-01 a 08, T-CON-01 a 04, T-IMP-01 a 13, T-RL-01 a 05 e T-OBS-01. Ensaios T-RES-01 a 05, T-IMP-14 e T-OBS-02 executados com saída registrada. `scripts/demo-isolamento.ps1` rodando até o fim no Compose e no kind |
+| **Etapa 2** — núcleo multi-tenant | 1 a 7 | `npm test` verde com T-RLS-01 a 17, T-ISO-01 a 13, 15 e 19, T-AUTH-01 a 08, T-CON-01 a 04, T-IMP-01 a 13, T-RL-01 a 05 e T-OBS-01. Ensaios T-RES-01 a 05, T-IMP-14 e T-OBS-02 executados com saída registrada. `scripts/demo-isolamento.ps1` rodando até o fim no Compose e no kind |
 | **Etapa 3** — qualidade medida | 8 a 11 | Tudo da Etapa 2 rodando **no CI** a cada push. T-ISO-14 demonstrado (build vermelha com rota proibida). T-CQ01-01 aprovado e T-CQ01-02 registrado em `docs/ensaios/cq01-<data>.md`. T-CQ03-01 aprovado e T-RES-06 executado. T-CQ04-01 e T-CQ04-02 e T-CQ05-01 a 03 com relatório em `docs/ensaios/` |
 | **Etapa 4** — produto e entrega | 12 a 15 | Tudo das etapas 2 e 3, mais T-ISO-16 a 18, T-PROD-01 a 03, T-WEB-01 a T-WEB-09 (contra a stack real) e T-LGPD-01 a 03. T-RLS-15 continua verde com a tabela `interacoes`. Lacunas da seção 3.5 resolvidas ou declaradas na defesa |
 

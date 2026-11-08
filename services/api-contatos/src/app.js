@@ -56,13 +56,30 @@ export function buildApp(opcoes = {}) {
     rep.header('x-request-id', req.id);
   });
 
+  // Decisão 6 (CQ-02): todo 404 em rota com :id vira um evento no log. Com RLS, a API não sabe se o id é
+  // de outro tenant ou se não existe (as duas coisas são "0 linhas"), então registra os dois casos. O
+  // tenant_id entra sozinho: o req.log já é o logger filho criado na autenticação. Fica aqui, num ponto
+  // só, para que toda rota nova com :id ganhe o evento sem precisar lembrar dele.
+  const registrarNaoEncontrado = (req) => {
+    const id = req.params?.id;
+    if (typeof id !== 'string') return; // 404 de rota sem :id (não há recurso para auditar)
+    req.log.info(
+      { evento: 'recurso_nao_encontrado', metodo: req.method, rota: req.routeOptions.url, id: id.slice(0, 64) },
+      'recurso não encontrado',
+    );
+  };
+
   app.setErrorHandler((erro, req, rep) => {
-    if (erro instanceof ErroContrato) return rep.status(erro.status).send(erro.corpo);
+    if (erro instanceof ErroContrato) {
+      if (erro.status === 404) registrarNaoEncontrado(req);
+      return rep.status(erro.status).send(erro.corpo);
+    }
 
     if (erro.validation) {
       // :id fora do formato UUID: para quem chama é só um recurso que não existe (contrato, seção 1).
       // Assim o Postgres nunca recebe um texto que não é UUID (que daria 500).
       if (erro.validationContext === 'params') {
+        registrarNaoEncontrado(req);
         const mensagem = req.routeOptions.config?.naoEncontrado ?? MENSAGENS.NAO_ENCONTRADO;
         return rep.status(404).send({ erro: mensagem, codigo: 'NAO_ENCONTRADO' });
       }

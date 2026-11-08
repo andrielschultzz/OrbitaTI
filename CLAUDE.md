@@ -42,7 +42,7 @@ Se uma tarefa exigir contrariar um ADR, **pare e pergunte**. Não mude a decisã
 ## Estrutura
 
 ```
-services/api-contatos/   porta de entrada: auth, contatos, importações, rotas /interno
+services/api-contatos/   porta de entrada: auth, contatos, importações, rotas /interno; test/ = unitários sem stack (T-ISO-13)
 services/importacao/     worker BullMQ: lê o CSV do job, valida, envia lotes à API
 db/init/                 cria papéis do Postgres (roda só no primeiro boot)
 db/migrations/           schemas, tabelas, RLS, grants
@@ -50,7 +50,7 @@ db/migrate.js            aplica migrações (imagem orbitati/migrate: db/Dockerf
 deploy/k8s/              manifests do kind
 tests/                   testes de integração (isolamento, RLS, importação); tests/apoio/ = funções comuns (não são testes)
 tests/carga/             k6 (CQ-01)
-scripts/                 demo de isolamento e utilitários (PowerShell)
+scripts/                 seed.js (contas de demo), demo-isolamento.ps1 e utilitários
 web/                     Portal Web: SPA React (src/), nginx (nginx/), Dockerfile, design system
 web/simulador/           simulador do contrato (docs/contrato-api.md) para o Portal rodar sem a API; fora da imagem
 web/e2e/                 E2E e capturas (Playwright); capturas em web/e2e/capturas/ (fora do git)
@@ -64,6 +64,8 @@ npm run env                           # gera o .env com senhas aleatórias; nunc
 docker compose up -d --build --wait   # sobe tudo (postgres, redis, migrate, api, importacao)
 docker compose run --rm migrate       # aplica migrações pendentes
 npm test                              # todos os testes (stack precisa estar no ar)
+npm run seed                          # tenants de demonstração DevSolo e TechConsult (idempotente; SEED_URL)
+powershell -ExecutionPolicy Bypass -File .\scripts\demo-isolamento.ps1 [-SemPausa] [-BaseUrl <url>]
 docker compose logs -f api-contatos importacao
 docker compose down -v                # derruba e APAGA os dados (reset total)
 ```
@@ -153,6 +155,9 @@ são corrigidas no Bloco 7 — não corrija docs antes disso, a menos que eu pe�
 
 - `x-request-id`: aceito na entrada ou gerado (UUID), devolvido na resposta, levado no payload do job e
   reenviado pelo worker no callback. Todo log (pino) inclui `reqId` e `tenant_id`.
+- Todo 404 em rota com `:id` gera log `evento: "recurso_nao_encontrado"` com `tenant_id`, `metodo`, `rota` e `id`
+  (decisão 6; com RLS, "de outro tenant" e "inexistente" são indistinguíveis). Fica no `setErrorHandler` do
+  `app.js`: rota nova com `:id` ganha o evento sozinha (T-ISO-19).
 - `GET /saude` → `{ db: "ok"|"fora", fila: "ok"|"fora" }`. Fila fora não derruba a API: só
   `POST /importacoes` responde 503 (conexão BullMQ com `enableOfflineQueue: false`).
 

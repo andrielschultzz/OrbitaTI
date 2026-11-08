@@ -48,6 +48,15 @@ Fazer quando os blocos 2, 4 e 12 existirem. Detalhes em `prompts/bloco-13.md`, F
    - Sem o seed, o login falha e a suíte de capturas para no primeiro teste.
    - Alternativa: `E2E_DEMO_EMAIL` e `E2E_DEMO_SENHA` apontando para uma conta com dados.
    - Os demais E2E criam as próprias empresas e não dependem de seed.
+   - **O seed já existe (bloco 3, `npm run seed`), mas ainda não alimenta o "Saindo de órbita".**
+     - Hoje ele cria só contas e contatos. Todo contato nasce com `criado_em = agora`, sem interação.
+     - O "esfriando" usa `COALESCE(ultima_interacao_em, criado_em)` (contrato, K5). Então nenhum contato do
+       seed passa de 90 dias, e a lista fica vazia na demo e nas capturas.
+     - **No bloco 12**, quando `interacoes` existir, o seed precisa registrar interações com `ocorrida_em` no
+       passado, com os mesmos dias de `web/simulador/dados.js` (ex.: João Servidor, 412 dias).
+     - Isso só funciona se a rota de interação aceitar `ocorrida_em` retroativo, o que precisa ser conferido
+       no contrato antes de escrever o seed.
+     - Os contatos sem interação continuam recém-criados para o "esfriando", porque o `criado_em` não vem da API.
 5. **Fila fora de verdade.** Hoje o E2E simula o 503 `FILA_INDISPONIVEL` no navegador (`page.route`).
    Isso prova que o Portal trata a resposta, não que a API a devolve. Na stack real, parar o Redis e
    repetir.

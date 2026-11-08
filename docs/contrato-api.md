@@ -56,7 +56,7 @@ Mudanças da 1.1 (Fase 0 do bloco 13): `GET /planos/atual` virou `GET /planos` p
 | 401 | `NAO_AUTENTICADO` | Sem token, ou token inválido, adulterado ou expirado | Sua sessão expirou. Entre de novo. |
 | 401 | `CREDENCIAIS_INVALIDAS` | Login com e-mail inexistente, senha errada ou tenant cancelado. **Mesmo corpo nos três casos** (T-AUTH-05) | E-mail ou senha incorretos. |
 | 403 | `SEM_PERMISSAO` | Papel sem permissão **dentro do próprio tenant** (ex.: consultor em `/conta/*`, T-LGPD-01) | Seu perfil não tem permissão para isso. |
-| 404 | `NAO_ENCONTRADO` | Recurso inexistente **ou de outro tenant**: mesmo status e mesmo corpo (regra 5, T-ISO-05) | Contato não encontrado. / Importação não encontrada. |
+| 404 | `NAO_ENCONTRADO` | Recurso inexistente **ou de outro tenant**: mesmo status e mesmo corpo (regra 5, T-ISO-05). Em rota com `:id`, a API registra no log o evento `recurso_nao_encontrado` (`tenant_id`, `metodo`, `rota`, `id`); a resposta não muda (T-ISO-19) | Contato não encontrado. / Importação não encontrada. |
 | 409 | `EMAIL_JA_CADASTRADO` | Cadastro com e-mail de usuário que já existe | Esse e-mail já tem conta. |
 | 409 | `EMAIL_DUPLICADO` | Contato com e-mail já usado no mesmo tenant | Já existe um contato com esse e-mail. |
 | 413 | `ARQUIVO_GRANDE` | Corpo acima de 1 MB (1.048.576 bytes) | O arquivo passa de 1 MB. Divida a planilha em partes menores. |

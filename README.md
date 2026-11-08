@@ -120,6 +120,37 @@ qualquer WARNING: um `GRANT` ou `REVOKE` sem efeito não dá erro, só aviso. Pa
 ambiente local a pasta é montada no contêiner, então uma migração nova vale sem rebuild; mudanças no
 `migrate.js` pedem `docker compose build migrate`.
 
+### Demo de isolamento (CQ-02)
+
+Com a stack no ar:
+
+```
+npm run seed    # cria DevSolo Sistemas (marcelo@devsolo.dev, 5 contatos) e TechConsult Solutions
+                # (gestor@techconsult.com.br, 20 contatos), senha Demo@2026. Rodar de novo só avisa.
+powershell -ExecutionPolicy Bypass -File .\scripts\demo-isolamento.ps1             # com pausas (apresentação)
+powershell -ExecutionPolicy Bypass -File .\scripts\demo-isolamento.ps1 -SemPausa   # direto (testes e CI)
+```
+
+**O que a demo faz:**
+
+1. Entra nas duas empresas e mostra quantos contatos cada uma vê.
+2. A DevSolo tenta ler, alterar e excluir um contato da TechConsult pelo id. Cada tentativa mostra
+   "404 — isolamento OK" ou "FALHA DE ISOLAMENTO".
+3. A TechConsult confere que o contato continua igual.
+
+Termina com código de saída 0 se deu tudo certo e 1 se houve falha. No kind, use `-BaseUrl http://localhost:30080`.
+
+**Por que `-ExecutionPolicy Bypass`.** O Windows bloqueia scripts `.ps1` que não são assinados, e este
+script não é. O `Bypass` vale **só para essa execução**: a política da máquina continua a mesma e não é
+preciso ser administrador. Rodar `.\scripts\demo-isolamento.ps1` direto funciona só se a política da
+máquina já permitir.
+
+Cada 404 em rota com `:id` também aparece no log da API, como evento `recurso_nao_encontrado`. Para ver:
+
+```
+docker compose logs api-contatos | Select-String recurso_nao_encontrado
+```
+
 ## Portal Web
 
 > **Estado em 07/11/2026:** o Portal está pronto e testado, mas roda contra o **simulador** do contrato

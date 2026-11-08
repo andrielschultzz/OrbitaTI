@@ -39,6 +39,7 @@ documentação e o ADR-004 ficam para o Bloco 7, e este arquivo garante que nada
 | C8 | Quem lê o progresso da importação | A API lê o schema `importacao` (seta ⑨) | `api_contatos` só tem acesso a `orbita` | Status em `orbita.importacoes`, atualizado pela rota `/interno/.../lotes` | `adr-004`, `registro-enc11-cristofer.md` |
 | C9 | E-mail obrigatório | Visão: nome, telefone e contexto bastam | Deduplicação por `(tenant_id, email)` | **Decidido (D3), falta documentar** | `01-visao-produto.md`, `adr-004` |
 | C10 | Detalhes menores | README "EC6" × visão "EC7"; "Cristofer" sem sobrenome; enc06 com tabelas em inglês | "Cristofer Mateus Rutzen"; identificadores em português | Corrigir quando passar por perto | `README.md`, `01-visao-produto.md`, demais docs |
+| C11 | Resposta do 404 cruzado (CQ-02) | "404 Not Found, **corpo vazio**, evento registrado no **log de auditoria**" | Corpo `{erro, codigo: "NAO_ENCONTRADO"}`, igual ao de um id inexistente (contrato, seção 2). Decisão 6 (bloco 3): com RLS a API não distingue "de outro tenant" de "inexistente", então **todo** 404 em rota com `:id` gera no log da aplicação (pino) o evento `recurso_nao_encontrado` com `tenant_id`, `metodo`, `rota` e `id`. Não existe log de auditoria separado | Reescrever a linha "Resposta" do CQ-02: "404 com o mesmo corpo de um recurso inexistente; evento `recurso_nao_encontrado` no log da aplicação". Citar o T-ISO-19 | `atributos.md` (CQ-02) |
 
 ---
 
@@ -50,7 +51,8 @@ documentação e o ADR-004 ficam para o Bloco 7, e este arquivo garante que nada
 - **Store do rate limit:** memória ou Redis. Em memória, com várias réplicas no kind, o limite fica multiplicado. Em Redis, definir o comportamento quando ele cair.
 - **Cadastro de tenant:** campos do payload, confirmação de e-mail (não há Serviço de Notificações na Etapa 2), se devolve token, e se o e-mail do usuário é único em toda a base (o `buscar_credencial(email)` depende disso).
 - **Segredos:** nomes das variáveis de ambiente e o conteúdo do `.env.example`.
-- **Escopo:** refresh token de 7 dias e denylist em Redis (ADR-002), log de auditoria do 404 (CQ-02), exportação CSV/JSON e job de exclusão em 30 dias (`lgpd.md` marca estes dois para a Etapa 2).
+- **Escopo:** refresh token de 7 dias e denylist em Redis (ADR-002), exportação CSV/JSON e job de exclusão em 30 dias (`lgpd.md` marca estes dois para a Etapa 2).
+- ~~Log de auditoria do 404 (CQ-02)~~: **resolvido no bloco 3** (decisão 6). Falta só o texto do `atributos.md`, ver C11.
 - **`docs/desenho-servicos.jpg`:** citado em três documentos, mas o arquivo não existe no repositório.
 
 ---

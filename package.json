@@ -12,7 +12,8 @@
   ],
   "scripts": {
     "test": "vitest run",
-    "env": "node scripts/gerar-env.js"
+    "env": "node scripts/gerar-env.js",
+    "seed": "node scripts/seed.js"
   },
   "devDependencies": {
     "pg": "8.23.1",
