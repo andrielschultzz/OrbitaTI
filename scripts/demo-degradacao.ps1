@@ -25,7 +25,7 @@
   Sai com código 0 se tudo saiu como esperado e 1 se houve falha.
 
 .PARAMETER BaseUrl
-  Endereço da API. Padrão http://localhost:3000 (compose). O script usa "docker compose", então só
+  Endereço da API. Padrão http://127.0.0.1:3000 (compose). O script usa "docker compose", então só
   funciona contra a stack do compose.
 
 .PARAMETER SemPausa
@@ -36,7 +36,7 @@
   powershell -ExecutionPolicy Bypass -File .\scripts\demo-degradacao.ps1 -SemPausa
 #>
 param(
-  [string]$BaseUrl = 'http://localhost:3000',
+  [string]$BaseUrl = 'http://127.0.0.1:3000',
   [switch]$SemPausa
 )
 

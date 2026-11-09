@@ -20,7 +20,7 @@
   Leva de 1 a 3 minutos (cada recuperação espera o lock de 30 s expirar).
 
 .PARAMETER BaseUrl
-  Endereço da API. Padrão http://localhost:3000. Só funciona contra a stack do compose.
+  Endereço da API. Padrão http://127.0.0.1:3000. Só funciona contra a stack do compose.
 
 .PARAMETER Quedas
   1 (padrão, o T-IMP-14) ou 2 (prova o limite de recuperação do BullMQ).
@@ -30,7 +30,7 @@
   powershell -ExecutionPolicy Bypass -File .\scripts\ensaio-reprocessamento.ps1 -Quedas 2
 #>
 param(
-  [string]$BaseUrl = 'http://localhost:3000',
+  [string]$BaseUrl = 'http://127.0.0.1:3000',
   [ValidateSet(1, 2)][int]$Quedas = 1
 )
 
