@@ -110,7 +110,7 @@ function RecriarPostgres([switch]$SemOverride) {
   $limite = (Get-Date).AddSeconds(60)
   do {
     Start-Sleep -Seconds 1
-    try { $s = Invoke-RestMethod -Uri 'http://localhost:3000/saude' -TimeoutSec 5 } catch { $s = $null }
+    try { $s = Invoke-RestMethod -Uri 'http://127.0.0.1:3000/saude' -TimeoutSec 5 } catch { $s = $null }
   } while ((-not $s -or $s.db -ne 'ok') -and (Get-Date) -lt $limite)
   if (-not $s -or $s.db -ne 'ok') { throw 'a API não voltou a ver o banco 60 s depois de recriar o postgres' }
 }
@@ -145,7 +145,7 @@ $resultados = @()
 $restaurado = $false
 try {
   Passo 'Pré-requisitos'
-  $saude = Invoke-RestMethod -Uri 'http://localhost:3000/saude' -TimeoutSec 5
+  $saude = Invoke-RestMethod -Uri 'http://127.0.0.1:3000/saude' -TimeoutSec 5
   if ($saude.db -ne 'ok' -or $saude.fila -ne 'ok') { throw "stack fora do ar: /saude = $($saude | ConvertTo-Json -Compress)" }
   New-Item -ItemType Directory -Force -Path $Pasta | Out-Null
   if ($RecursosProducao) {

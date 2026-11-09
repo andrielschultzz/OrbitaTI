@@ -10,3 +10,6 @@ coverage/
 
 # Teste de carga (bloco 9): o JSON bruto do k6 tem alguns MB por rodada. Os resumos vão para o git.
 tests/carga/resultados/**/k6.json
+
+# Backups e extrações (bloco 11): têm dado pessoal dos contatos (LGPD). Nunca vão para o git.
+backups/

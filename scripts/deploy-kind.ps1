@@ -13,7 +13,7 @@
   7. Aplica api-contatos, importacao, mailpit e notificacoes (bloco 10) e faz rollout restart: com tag
      fixa e IfNotPresent, o pod não troca de imagem sozinho depois de um rebuild; o restart cria pods
      novos com a imagem recém-carregada.
-  8. Roda o seed contra http://localhost:30080 e mostra /saude e os pods.
+  8. Roda o seed contra http://127.0.0.1:30080 e mostra /saude e os pods.
 
   Este script NUNCA apaga namespace nem PVC. Reset total (APAGA o banco, equivale ao
   `docker compose down -v`): kubectl delete namespace orbitati
@@ -40,7 +40,7 @@ $K8s = Join-Path $Raiz 'deploy\k8s'
 $Cluster = 'saas'
 $Contexto = "kind-$Cluster"
 $Ns = 'orbitati'
-$Url = 'http://localhost:30080'
+$Url = 'http://127.0.0.1:30080'
 # Só as NOSSAS imagens passam pelo kind load. As de terceiros (postgres, redis e, no bloco 10, o Mailpit
 # v1.32.0) o nó baixa sozinho do Docker Hub: o kind load de imagem multiplataforma vinda do Docker Desktop
 # falha ("ctr: content digest ... not found", testado com o Mailpit em 08/11/2026).

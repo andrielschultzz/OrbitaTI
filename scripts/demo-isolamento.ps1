@@ -11,7 +11,7 @@
   Sai com código 0 se o isolamento se manteve e 1 se houve falha (o CI pode usar o código de saída).
 
 .PARAMETER BaseUrl
-  Endereço da API. Padrão http://localhost:3000 (compose). No kind: http://localhost:30080.
+  Endereço da API. Padrão http://127.0.0.1:3000 (compose). No kind: http://127.0.0.1:30080.
 
 .PARAMETER SemPausa
   Pula as pausas entre os passos. Use para rodar de ponta a ponta sem interação (testes e CI).
@@ -21,7 +21,7 @@
   powershell -ExecutionPolicy Bypass -File .\scripts\demo-isolamento.ps1 -SemPausa
 #>
 param(
-  [string]$BaseUrl = 'http://localhost:3000',
+  [string]$BaseUrl = 'http://127.0.0.1:3000',
   [switch]$SemPausa
 )
 

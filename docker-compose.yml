@@ -31,6 +31,10 @@ services:
       timeout: 3s
       retries: 20
       start_period: 10s
+    # Volta sozinho se o Docker Desktop reiniciar (em 09/11/2026 o postgres e o redis ficaram parados depois de
+    # um reinício, e a API subiu sem banco). unless-stopped respeita o "docker compose stop": a demo-degradacao
+    # continua derrubando e religando o banco. O migrate fica sem: é one-shot.
+    restart: unless-stopped
 
   redis:
     image: redis:7-alpine
@@ -40,6 +44,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+    restart: unless-stopped   # mesmo motivo do postgres
 
   migrate:
     # Imagem própria e pequena (db/Dockerfile): o pg vai dentro dela, sem depender do node_modules do
