@@ -310,12 +310,19 @@ lado de fora. Atrás do Nginx do Portal, a API só vê o IP do Nginx.
 - **Por que não fixar uma sub-rede confiável (J5):** o compose escolhe a sub-rede sozinho. Fixar uma arrisca
   colidir com a rede da VM do LARCC, e no kind a rede de pods é outra. "Rede interna" cobre os três ambientes
   sem configuração.
-- **No kind, `TRUST_PROXY_SALTOS=0` (J6).** A API está exposta direto pelo NodePort 30080, e o NAT do
-  kube-proxy faz o tráfego chegar com IP interno. Com 1, qualquer um forjaria o header. Passa para 1 quando o
-  Nginx do Portal entrar na frente (Fase 6 do bloco 13).
-- **Risco aceito K2 do bloco 6** (não confundir com a decisão K2 do contrato): com 0, todos os clientes de `localhost:30080` chegam com o mesmo IP, e o limite de
-  cadastro vira global (60/min para todos juntos). O de confirmação de e-mail (10/min por IP, bloco 10) também.
-  Aceitável no laboratório, com um usuário só. Num cluster real: `externalTrafficPolicy: Local` ou o Nginx na frente.
+- **No kind, `TRUST_PROXY_SALTOS=1` desde a Fase 6 do bloco 13 (J6, 09/11/2026).** Até ali a API estava
+  exposta direto pelo NodePort 30080, e o valor era 0: com 1, qualquer cliente forjaria o header. Agora a
+  NodePort 30080 é o Nginx do Portal (`deploy/k8s/70-web.yaml`) e a API é **ClusterIP**: só o Nginx e os
+  workers a alcançam, e o Nginx acrescenta o IP que viu. Conferido: um `X-Forwarded-For: 6.6.6.6` mandado
+  pelo cliente é ignorado (compose e kind).
+- **Risco aceito K2 do bloco 6, agora só no kind local** (não confundir com a decisão K2 do contrato): no kind
+  com Docker Desktop, todos os clientes de `localhost:30080` chegam ao Nginx com o **mesmo IP interno**, e os
+  limites por IP (cadastro 60/min, login 10/min por IP + e-mail, confirmação de e-mail 10/min) somam todo
+  mundo. O Nginx na frente **não** resolve isso, porque a troca de IP acontece antes dele. Medido em
+  09/11/2026: com `externalTrafficPolicy: Cluster` o Nginx vê `10.244.0.1` (SNAT do kube-proxy); com `Local`,
+  `172.18.0.1` (o gateway da rede `kind`: o encaminhamento de porta do Docker Desktop já troca o IP). Como
+  `Local` não trouxe o IP real, o Service ficou no padrão (`Cluster`). Aceitável no laboratório, com um
+  usuário só. **No compose (e na VM) o IP real chega:** a API registrou o IP do cliente, e não o do Nginx.
 - **Risco aceito J8:** com `TRUST_PROXY_SALTOS=1`, quem já está na rede interna (outro contêiner do compose,
   alguém no host chamando `127.0.0.1:3000`) pode mandar um IP diferente a cada tentativa e ganhar um contador
   de login novo. Quem está de fora não consegue:

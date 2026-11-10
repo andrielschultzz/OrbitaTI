@@ -1,6 +1,5 @@
 # OrbitaTI: stack local. postgres, redis, migrate (job), api-contatos, importacao (worker),
-# notificacoes (worker de e-mail) e mailpit (caixa de e-mail falsa, bloco 10).
-# O Portal (bloco 13, Fase 6) entra aqui depois.
+# notificacoes (worker de e-mail), mailpit (caixa de e-mail falsa, bloco 10) e web (Portal, bloco 13).
 #
 #   docker compose up -d --build --wait   sobe tudo; o migrate roda e SAI antes de a API subir
 #   docker compose run --rm migrate       aplica só as migrações pendentes
@@ -213,6 +212,45 @@ services:
     read_only: true
     tmpfs:
       - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+
+  web:
+    # Portal Web (bloco 13, Fase 6): nginx não-root servindo a SPA e fazendo proxy de /api para a API, na
+    # mesma origem (sem CORS). É o ÚNICO serviço exposto na VM: API, Postgres e Redis ficam na rede interna.
+    build: ./web
+    image: orbitati/web:0.1.0
+    environment:
+      # Nome do serviço na rede do compose. O DNS (127.0.0.11) a imagem descobre sozinha no
+      # /etc/resolv.conf (web/nginx/16-api-resolver.envsh); o nginx resolve o nome de novo a cada 10 s,
+      # então recriar a API não exige reiniciar o web.
+      API_UPSTREAM: api-contatos:3000
+    # Sem 127.0.0.1 de propósito: é a porta pública do produto (na VM, a que o firewall libera).
+    ports:
+      - "${WEB_PORTA:-8080}:8080"
+    depends_on:
+      # Só ordena a PARTIDA. Se a API cair depois, o nginx segue no ar e responde 502 no /api
+      # (o Portal mostra "Não conseguimos falar com o servidor").
+      api-contatos:
+        condition: service_healthy
+    healthcheck:
+      # /healthz é do próprio nginx, não passa pela API (mesma lógica do K3 no kind).
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+    # Raiz só leitura. O nginx grava em dois lugares, ambos em memória: /tmp (pid e arquivos temporários
+    # da imagem unprivileged) e /etc/nginx/conf.d (o entrypoint gera ali o default.conf a partir do template).
+    # uid/gid 101 = usuário nginx da imagem. Sem isso o tmpfs nasce root 775, o entrypoint só registra
+    # "conf.d is not writable" e o nginx sobe SEM nenhum server (não escuta a 8080). Visto em 09/11/2026:
+    # quem pegou foi o healthcheck.
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /etc/nginx/conf.d:uid=101,gid=101,mode=0755
     cap_drop: [ALL]
     security_opt:
       - no-new-privileges:true

@@ -69,12 +69,12 @@ Premissas declaradas em 12 meses, usadas em todos os artefatos:
 ## Integração contínua
 
 O GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) roda a cada `push` (qualquer branch)
-e a cada `pull_request` (inclusive de fork). São dois jobs em paralelo, cada um com limite de 15 minutos:
+e a cada `pull_request` (inclusive de fork). São dois jobs em paralelo, com limite de 20 minutos (`api`) e 15 (`web`):
 
 | Job | O que faz |
 |---|---|
-| `api` | Copia o `.env.example` para `.env`, faz `npm ci`, sobe a stack com `docker compose up -d --build --wait` e roda `npm test` com `TESTES_LENTOS=1` (inclui o T-IMP-13). Se falhar, imprime `docker compose logs` |
-| `web` | No `web/`: `npm ci`, testes unitários, `npm run build` e os E2E do Playwright contra a imagem do nginx apontando para o simulador do contrato |
+| `api` | Copia o `.env.example` para `.env`, faz `npm ci`, sobe a stack com `docker compose up -d --build --wait` (com o Portal), roda `npm test` com `TESTES_LENTOS=1` (inclui o T-IMP-13), o seed duas vezes e os E2E do Portal **contra a API real**, pelo nginx. Se falhar, imprime `docker compose logs` e guarda o relatório do Playwright |
+| `web` | No `web/`: `npm ci`, testes unitários, `npm run build` e os E2E do Playwright contra a imagem do nginx apontando para o simulador do contrato. Os mesmos E2E do job `api`: se um passa e o outro falha, API, contrato e simulador divergiram |
 
 Nenhum segredo real entra no CI: o `.env.example` tem valores falsos que funcionam, e o banco do runner
 nasce vazio e morre ao fim da execução. Os testes não dependem de dados antigos: cada um cria os próprios
@@ -103,7 +103,7 @@ docs/
 ├── contrato-api.md              # contrato HTTP entre Portal e API
 ├── plano-de-testes.md           # casos T-xxx, rastreabilidade e lacunas
 ├── pendencias-bloco-7.md        # histórico das decisões dos blocos 0 a 6 e onde cada uma foi parar
-├── portal-pendencias.md         # o que falta no Portal (Fase 6) e para a VM
+├── portal-pendencias.md         # resultado da Fase 6 e o que falta para a VM
 ├── ensaios/                     # relatórios de ensaios (ex.: Lighthouse do Portal)
 └── atividades/
     └── enc06-andriel.md         # atividade dirigida do Encontro 06
@@ -185,10 +185,11 @@ parte, dentro de `web/` (seção [Portal Web](#portal-web)).
 powershell -ExecutionPolicy Bypass -File .\scripts\deploy-kind.ps1             # build, kind load, apply, migração, rollout, seed
 powershell -ExecutionPolicy Bypass -File .\scripts\deploy-kind.ps1 -SemBuild   # só os manifests mudaram
 kubectl get pods -n orbitati
-curl.exe -s http://localhost:30080/saude
+curl.exe -s http://127.0.0.1:30080/api/saude
 ```
 
-No kind, a API roda com 2 réplicas e fica em http://localhost:30080. O script cria o Secret
+No kind, http://localhost:30080 é o **Portal** (nginx, 2 réplicas), que faz proxy de `/api` para a API (2
+réplicas, só dentro do cluster: Service ClusterIP). Seed, demos e sonda usam `http://127.0.0.1:30080/api`. O script cria o Secret
 `orbitati-segredos` a partir do `.env` só se ele ainda não existir, e nunca imprime os valores. Ele também
 **nunca** apaga namespace nem volume. O reset total (apaga o banco do kind) é
 `kubectl delete namespace orbitati`.
@@ -199,7 +200,7 @@ Todos sem pausa com `-SemPausa`, e saem com código 0 se deu tudo certo ou 1 se 
 
 | Script | O que mostra | Onde roda |
 |---|---|---|
-| `scripts\demo-isolamento.ps1` | A DevSolo tenta ler, alterar e excluir um contato da TechConsult pelo id: 404 nas três (CQ-02) | Compose; no kind com `-BaseUrl http://localhost:30080` |
+| `scripts\demo-isolamento.ps1` | A DevSolo tenta ler, alterar e excluir um contato da TechConsult pelo id: 404 nas três (CQ-02) | Compose; pelo Portal com `-BaseUrl http://127.0.0.1:8080/api`; no kind com `-BaseUrl http://127.0.0.1:30080/api` |
 | `scripts\demo-degradacao.ps1` | Para o worker, o Redis e o banco, um de cada vez, e mostra o que segue funcionando; religa tudo no fim (T-RES-01 a 07) | Só compose |
 | `scripts\ensaio-reprocessamento.ps1` | Mata o worker no meio de uma importação de 5.000 linhas: conclui sem duplicar. Com `-Quedas 2`, termina como `falhou` (T-IMP-14). Leva de 1 a 3 min | Só compose |
 
@@ -282,9 +283,9 @@ ambiente local a pasta é montada no contêiner, então uma migração nova vale
 
 ## Portal Web
 
-> **Estado em 08/11/2026:** o Portal está pronto e testado, mas roda contra o **simulador** do contrato
-> (`web/simulador/`). A API real já existe (Etapa 2); falta a integração do Portal com ela e a entrada do `web`
-> no compose e no kind (bloco 13, Fase 6). Ver [`docs/portal-pendencias.md`](docs/portal-pendencias.md).
+> **Estado em 09/11/2026:** o Portal está ligado na API real (bloco 13, Fase 6): serviço `web` no compose
+> (http://localhost:8080) e no kind (http://localhost:30080). O simulador do contrato (`web/simulador/`)
+> continua para desenvolver sem a stack. O que falta para a VM: [`docs/portal-pendencias.md`](docs/portal-pendencias.md).
 
 Requisitos: Node.js 22 ou mais novo e Docker Desktop. Todos os comandos rodam dentro de `web/`:
 
@@ -323,10 +324,19 @@ curl.exe -s -o NUL -w "%{http_code}" http://localhost:8080/api/interno/x   # 404
 curl.exe -sI http://localhost:8080                                         # CSP e cabeçalhos de segurança
 ```
 
-**3. Pelo Docker Compose:** ainda não. O serviço `web` entra no compose na Fase 6, junto com a integração
-com a API real.
+Se o compose estiver no ar, a 8080 já é do serviço `web`: pare-o antes (`docker compose stop web`).
 
-**Testes do Portal** (com a imagem e o simulador do item 2 no ar):
+**3. Pelo Docker Compose, com a API real** (na raiz do repositório):
+
+```
+docker compose up -d --build --wait   # sobe tudo, inclusive o web na 8080 (WEB_PORTA no .env)
+npm run seed                          # contas de demonstração (DevSolo e TechConsult)
+```
+
+Abra http://localhost:8080 e entre com as mesmas contas. Em desenvolvimento contra a API real, com
+recarga ao salvar: `npm run dev` em `web/` (o Vite manda o `/api` para `http://localhost:3000`).
+
+**Testes do Portal** (com o Portal no ar pelo item 2 ou pelo item 3):
 
 ```
 npm test            # unitários (Vitest): cliente HTTP, sessão, mapa de órbita, tokens de tema, simulador
@@ -335,9 +345,11 @@ npm run capturas    # 8 telas x 4 larguras x 2 temas em web/e2e/capturas/
 npm run lighthouse  # Lighthouse mobile em /entrar e /contatos, claro e escuro
 ```
 
-A URL testada vem de `E2E_URL` (padrão `http://localhost:8080`). A mesma suíte roda contra a stack real
-na Fase 6 (`$env:E2E_URL="http://localhost:8080"` no PowerShell). Último Lighthouse:
-[`docs/ensaios/portal-lighthouse-2026-11-07.md`](docs/ensaios/portal-lighthouse-2026-11-07.md).
+A URL testada vem de `E2E_URL` (padrão `http://localhost:8080`, que serve para o simulador e para o
+compose; no kind, `$env:E2E_URL="http://localhost:30080"`). As capturas e o Lighthouse entram com a conta
+DevSolo; na stack real, rode o seed antes. O Lighthouse precisa rodar pelo PowerShell: pelo Git Bash o
+Chromium não abre (`spawn UNKNOWN`). Último Lighthouse, contra a API real:
+[`docs/ensaios/portal-lighthouse-2026-11-09.md`](docs/ensaios/portal-lighthouse-2026-11-09.md).
 
 ## Calendário do Projeto Integrador
 

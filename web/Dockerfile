@@ -16,8 +16,12 @@ RUN npm run build
 
 FROM nginxinc/nginx-unprivileged:1.28-alpine
 # Padrão do compose; no kind e na VM muda pela variável. Só API_* passa pelo envsubst.
+# NGINX_ENTRYPOINT_LOCAL_RESOLVERS=1: a imagem lê o DNS do /etc/resolv.conf; o 16-api-resolver.envsh o
+# expõe como API_RESOLVER (que pode ser sobrescrita). Ver o comentário daquele arquivo.
 ENV API_UPSTREAM=api-contatos:3000 \
-    NGINX_ENVSUBST_FILTER=^API_
+    NGINX_ENVSUBST_FILTER=^API_ \
+    NGINX_ENTRYPOINT_LOCAL_RESOLVERS=1
+COPY --chmod=755 nginx/16-api-resolver.envsh /docker-entrypoint.d/16-api-resolver.envsh
 COPY nginx/seguranca.conf /etc/nginx/seguranca.conf
 COPY nginx/default.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /app/dist /usr/share/nginx/html

@@ -217,8 +217,9 @@ Os dois componentes em laranja são os que sustentam o isolamento. O **Resolvedo
 <a id="estado-na-etapa-2"></a>
 ## Estado na Etapa 2
 
-> Atualizado em 08/11/2026 (Bloco 7). Os diagramas acima são a **proposta** da Etapa 1 e ficam como
-> registro. Esta seção mostra o que existe em código e o que ficou para depois.
+> Atualizado em 08/11/2026 (Bloco 7) e em 09/11/2026 (bloco 13, Fase 6: Portal ligado na API real). Os
+> diagramas acima são a **proposta** da Etapa 1 e ficam como registro. Esta seção mostra o que existe em
+> código e o que ficou para depois.
 
 ### Nível 2 — o que existe hoje
 
@@ -227,7 +228,7 @@ flowchart TB
     user["<b>Usuário do tenant</b><br/>Profissional de TI"]
 
     subgraph sistema["OrbitaTI — Etapa 2 (compose e kind)"]
-        portal["<b>Portal Web</b><br/><i>[nginx + SPA React]</i><br/>Implementado contra o simulador.<br/>Integração pendente:<br/>Fase 6 do bloco 13"]
+        portal["<b>Portal Web</b><br/><i>[nginx + SPA React]</i><br/>Única porta exposta.<br/>Proxy de /api para a API.<br/>2 réplicas no kind"]
 
         api["<b>API de Contatos</b><br/><i>[Node.js 22 + Fastify 5]</i><br/>Auth, contatos, importações,<br/>rate limit, rotas /interno.<br/><b>tenant_id só do JWT</b><br/>2 réplicas no kind"]
 
@@ -253,7 +254,7 @@ flowchart TB
     end
 
     user -->|"HTTPS"| portal
-    portal -.->|"/api, JSON + Bearer JWT<br/>hoje vai ao simulador"| api
+    portal -->|"/api, JSON + Bearer JWT<br/>X-Forwarded-For, X-Request-Id"| api
     api -->|"SQL em withTenant<br/><b>set_config app.tenant_id</b>"| orbita
     api -->|"① add job: tenant_id + CSV até 1 MB<br/>jobId = importacao_id"| redis
     api -->|"contadores do rate limit"| redis
@@ -273,21 +274,20 @@ flowchart TB
     classDef ausente fill:#9ca3af,stroke:#4b5563,color:#fff,stroke-dasharray: 5 3
 
     class user pessoa
-    class api,redis,worker,migrate,notif,mailpit container
+    class portal,api,redis,worker,migrate,notif,mailpit container
     class orbita,imp dados
-    class portal parcial
     class wdoc,blob ausente
 ```
 
 **Leitura do diagrama.**
 
-- **Em verde, o que roda.** No compose são 7 contêineres: `postgres`, `redis`, `migrate`, `api-contatos`,
-  `importacao`, `notificacoes` e `mailpit` (os dois últimos desde o bloco 10). No kind, os mesmos, com a API em
-  2 réplicas (`deploy/k8s/`).
+- **Em verde, o que roda.** No compose são 8 contêineres: `postgres`, `redis`, `migrate`, `api-contatos`,
+  `importacao`, `notificacoes` e `mailpit` (os dois últimos desde o bloco 10) e `web` (o Portal, bloco 13). No
+  kind, os mesmos, com a API e o `web` em 2 réplicas (`deploy/k8s/`). Só o `web` fica exposto: a 8080 no compose
+  e a NodePort 30080 no kind. A API é ClusterIP no kind; no compose, a 3000 só existe em `127.0.0.1` (testes).
 - **As setas ④ a ⑥ são o e-mail de confirmação (bloco 10).** O job leva tudo o que o e-mail precisa (destinatário,
   nome e link), então o Serviço de Notificações não tem banco nem papel no Postgres. Fila fora não impede o
   cadastro (T-RES-06).
-- **Em laranja, o Portal.** Está pronto e testado, mas fala com o simulador do contrato.
 - **Em cinza tracejado, o que não foi construído.**
 - **A seta ③ é a principal mudança em relação à proposta.** O Serviço de Importação não grava contatos no
   banco: chama a API. O papel `importacao_svc` não tem nenhum GRANT no schema `orbita` (T-RLS-07). Cada serviço
@@ -301,7 +301,7 @@ flowchart TB
 | **Fila e contadores** | Implementado | `redis` no compose, `deploy/k8s/20-redis.yaml` | O job leva `tenant_id`; o rate limit conta por tenant | T-OBS-02, T-RL-01 |
 | **PostgreSQL** | Implementado | `db/migrations/`, `db/init/` | RLS com `ENABLE` + `FORCE` e `NULLIF` em toda tabela com `tenant_id`; nenhum papel de aplicação com `BYPASSRLS` | T-RLS-01 a 19 |
 | **migrate** | Implementado | `db/migrate.js`, `db/Dockerfile` | Roda como `migrador`, só no job de migração; a senha não chega a nenhum serviço | T-RLS-15, T-RLS-19 |
-| **Portal Web** | Implementado contra o simulador; integração pendente (Fase 6 do bloco 13) | `web/` | JWT no `sessionStorage`, tenant nunca em URL, query ou corpo | T-WEB-01 (simulador) |
+| **Portal Web** | Implementado e ligado à API real (bloco 13, Fase 6) | `web/`, serviço `web` do compose, `deploy/k8s/70-web.yaml` | JWT no `sessionStorage`, tenant nunca em URL, query ou corpo | T-WEB-01 a 09 (simulador e stack real) |
 | **Serviço de Notificações** | Implementado no bloco 10, só o e-mail de confirmação; Mailpit no lugar do provedor | `services/notificacoes/`, `deploy/k8s/60-notificacoes.yaml` | Não tem banco: recebe no job só o destinatário do próprio cadastro. O link leva um token com `finalidade` que não serve como sessão | T-AUTH-09 a 13, T-RES-06, T-OBS-04, T-CQ03-01 |
 | **Gerador de Documentos** | Fora do escopo do semestre ([`contrato-api.md`](contrato-api.md), seção 10) | — | — | — |
 | **Armazenamento S3** | Adiado — ver [ADR-004](adr/adr-004-comunicacao-entre-servicos.md) (o CSV vai no payload do job) | — | — | — |
@@ -320,7 +320,7 @@ flowchart TB
 O que acontece quando a Importação ou o Redis caem, o CSV no payload e a conta de memória do Redis estão no
 [ADR-004](adr/adr-004-comunicacao-entre-servicos.md).
 
-### Portal Web: implementado, ligado ao simulador
+### Portal Web: implementado, ligado à API real
 
 ```mermaid
 flowchart LR
@@ -329,7 +329,7 @@ flowchart LR
         spa["SPA React<br/>(arquivos estáticos)"]
         proxy["Proxy /api<br/>(remove o prefixo)"]
     end
-    api["API REST<br/>(hoje: simulador do contrato)"]
+    api["API de Contatos<br/>(api-contatos:3000; no dev, o simulador)"]
     nav -- "/, /contatos, /assets/..." --> spa
     nav -- "/api/... + Authorization: Bearer JWT" --> proxy
     proxy -- "/... + X-Forwarded-For, X-Request-Id" --> api
@@ -340,7 +340,9 @@ flowchart LR
   (`/` e `/api`), então não existe requisição entre origens. Isso dispensa liberar CORS na API, e a CSP
   pode ser `connect-src 'self'`.
 - **O nginx serve a SPA** com fallback para `index.html` (o React Router decide a tela) e **faz proxy de
-  `/api`** para a API, com o endereço vindo de `API_UPSTREAM`.
+  `/api`** para a API, com o endereço vindo de `API_UPSTREAM`. O nome é resolvido de novo a cada 10 s
+  (`resolver` + variável, com o DNS do `/etc/resolv.conf`): recriar a API, com outro IP, não exige reiniciar
+  o nginx (provado no compose).
 - **Camadas a mais na borda:**
   - `/api/interno` responde 404 no próprio nginx;
   - CSP sem nada externo e sem script inline;
@@ -350,11 +352,10 @@ flowchart LR
 - **O limite de tenant no Portal** segue a tabela "Containers em detalhe": o JWT fica no
   `sessionStorage` da aba e o tenant nunca aparece em URL, query ou corpo. O cliente HTTP trava isso em
   desenvolvimento, e o teste T-WEB-01 confere no fluxo inteiro.
-- **Ainda não ligado à API real.** A API existe desde a Etapa 2, mas o `/api` do Portal ainda aponta para o
-  **simulador** do contrato (`web/simulador/`). A integração e a entrada do `web` no compose e no kind são a
-  Fase 6 do bloco 13, **pendente**: ver [`portal-pendencias.md`](portal-pendencias.md). Quando o nginx entrar
-  na frente, o `TRUST_PROXY_SALTOS` do kind passa de 0 para 1 ([ADR-004](adr/adr-004-comunicacao-entre-servicos.md),
-  "Borda: Nginx → API").
+- **Ligado à API real desde 09/11/2026** (Fase 6 do bloco 13): os mesmos 33 E2E passam contra o simulador e
+  contra a API (compose e kind), o que mostra que os dois cumprem o mesmo contrato. O simulador
+  (`web/simulador/`) continua para o modo dev e para o job `web` do CI. No kind, o `TRUST_PROXY_SALTOS` passou
+  de 0 para 1 ([ADR-004](adr/adr-004-comunicacao-entre-servicos.md), "Borda: Nginx → API").
 
 ---
 

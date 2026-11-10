@@ -1,0 +1,104 @@
+# Portal Web (bloco 13, Fase 6): nginx não-root servindo a SPA e fazendo proxy de /api para a API.
+# É a ÚNICA porta do OrbitaTI fora do cluster (NodePort 30080, a que o kind "saas" publica no localhost).
+# A api-contatos virou ClusterIP: só o nginx (e os workers) a alcançam, e por isso ela confia em 1 salto
+# de proxy (TRUST_PROXY_SALTOS=1, J6).
+#
+# Probes em /healthz, que é do próprio nginx e NÃO passa pela API (mesma lógica do K3): se a API ou o banco
+# caírem, o Portal continua servindo as telas e responde 502/503 só no /api, em vez de o Kubernetes tirar o
+# nginx do Service ou reiniciá-lo sem consertar nada.
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  namespace: orbitati
+spec:
+  type: NodePort
+  # Cluster (o padrão). Local foi medido em 09/11/2026 e NÃO traz o IP real do cliente no kind local: com
+  # Cluster o nginx vê 10.244.0.1 (SNAT do kube-proxy); com Local, 172.18.0.1 (gateway da rede "kind": o
+  # encaminhamento de porta do Docker Desktop já troca o IP antes do kube-proxy). Nos dois, todos os clientes
+  # chegam com o MESMO IP, e os limites por IP (cadastro, login, confirmação) somam todo mundo (K2 em
+  # docs/pendencias-bloco-7.md). Na VM, com o compose, o IP real chega (medido: 172.20.0.1 = o cliente).
+  externalTrafficPolicy: Cluster
+  selector:
+    app: web
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      nodePort: 30080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: orbitati
+spec:
+  # 2, como a API: com 1 só, a queda do pod do nginx tiraria o produto inteiro do ar, mesmo com as 2
+  # réplicas da API saudáveis atrás dele. O nginx é barato (poucos MiB).
+  replicas: 2
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101    # usuário "nginx" da imagem nginx-unprivileged
+        runAsGroup: 101
+      containers:
+        - name: web
+          image: orbitati/web:0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            # Nome COMPLETO: o resolver do nginx não usa o "search" do /etc/resolv.conf, então
+            # "api-contatos" sozinho não resolveria aqui (no compose resolve, pelo DNS do Docker).
+            # O DNS (o kube-dns) a imagem descobre sozinha no /etc/resolv.conf (16-api-resolver.envsh).
+            - name: API_UPSTREAM
+              value: "api-contatos.orbitati.svc.cluster.local:3000"
+          # Mesma lição do K4: num rollout, o nginx que recebe SIGTERM para de aceitar conexões enquanto o
+          # kube-proxy ainda manda tráfego para ele (os endpoints levam alguns segundos para atualizar).
+          # A pausa de 5 s antes do SIGTERM cobre essa janela. O sleep é o do busybox da imagem alpine.
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sleep", "5"]
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests: { cpu: 20m, memory: 32Mi }
+            limits: { cpu: 250m, memory: 128Mi }
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+          # O nginx grava em dois lugares, ambos em memória: /tmp (pid e temporários da imagem unprivileged)
+          # e /etc/nginx/conf.d (o entrypoint gera ali o default.conf a partir do template). emptyDir nasce
+          # com permissão 777, então o uid 101 consegue gravar (no compose foi preciso uid=101 no tmpfs).
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: confd
+              mountPath: /etc/nginx/conf.d
+      volumes:
+        - name: tmp
+          emptyDir: { medium: Memory, sizeLimit: 16Mi }
+        - name: confd
+          emptyDir: { medium: Memory, sizeLimit: 1Mi }

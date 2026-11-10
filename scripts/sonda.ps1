@@ -26,7 +26,10 @@
   O que a sonda NÃO prova: os 99,5% do mês (ver docs/ensaios/cq04-*.md). Ela prova o MÉTODO.
 
 .PARAMETER Url
-  Padrão: http://127.0.0.1:30080/saude (API no kind, 2 réplicas). Compose: http://127.0.0.1:3000/saude.
+  Padrão: http://127.0.0.1:30080/api/saude: o caminho do usuário no kind (nginx do Portal, 2 réplicas, e
+  por trás a API, 2 réplicas). Desde a Fase 6 do bloco 13 a 30080 é o Portal; o ensaio de 08/11/2026
+  (docs/ensaios/cq04-*.md) mediu a API sozinha, quando ela era a 30080. Compose: http://127.0.0.1:8080/api/saude
+  (pelo Portal) ou http://127.0.0.1:3000/saude (só a API).
   127.0.0.1 e NÃO localhost: no Windows, "localhost" resolve primeiro para ::1 (IPv6); o kind e o compose
   publicam só em 127.0.0.1, e a tentativa em ::1 fica ~2 s pendurada antes de cair para o IPv4. Medido em
   08/11/2026: 2.051 ms com localhost, 26 ms com 127.0.0.1. Com o timeout de 2 s, TODA amostra daria falha.
@@ -36,7 +39,7 @@
   powershell -ExecutionPolicy Bypass -File .\scripts\sonda.ps1 -Minutos 1 -IntervaloSegundos 5   # teste rápido
 #>
 param(
-  [string]$Url = 'http://127.0.0.1:30080/saude',
+  [string]$Url = 'http://127.0.0.1:30080/api/saude',
   [double]$Minutos = 60,
   [int]$IntervaloSegundos = 15,
   [int]$TimeoutSegundos = 2,

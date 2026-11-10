@@ -38,14 +38,16 @@ Se uma tarefa exigir contrariar um ADR, **pare e pergunte**. Não mude a decisã
   imagem final tem só nginx + arquivos estáticos. Pacote independente, **fora dos workspaces** da raiz
   (tem `package.json` e `node_modules` próprios; o `vitest.config.js` da raiz, criado no bloco 1, exclui `web/**`). Testes: Vitest
   (unitários) e Playwright (E2E e capturas).
-- **Estado do Portal (09/11/2026):** roda contra o **simulador do contrato** (`web/simulador/`, Fastify em
-  memória, porta 3001). Os blocos 2, 4 e 12 já existem na API; a integração com a API real (bloco 13, Fase 6)
-  é o próximo passo. Pendências e lista para a VM em `docs/portal-pendencias.md`
+- **Estado do Portal (09/11/2026):** ligado na **API real** (bloco 13, Fase 6): serviço `web` no compose
+  (porta 8080) e Deployment `web` no kind (NodePort 30080, 2 réplicas; a `api-contatos` virou ClusterIP).
+  O nginx acha a API por `resolver` + variável (resolve de novo a cada 10 s; o DNS vem do `/etc/resolv.conf`,
+  `web/nginx/16-api-resolver.envsh`). O simulador (`web/simulador/`) continua para o modo dev e o job `web`
+  do CI. Pendências e lista para a VM em `docs/portal-pendencias.md`
 
 ## Estrutura
 
 ```
-.github/workflows/ci.yml GitHub Actions: job api (compose + npm test com TESTES_LENTOS=1 + seed duas vezes, a 2ª com --sem-mudancas) e job web (unitários, build, E2E contra o simulador)
+.github/workflows/ci.yml GitHub Actions: job api (compose com o web + npm test com TESTES_LENTOS=1 + seed duas vezes, a 2ª com --sem-mudancas + E2E do Portal contra a API real) e job web (unitários, build, E2E contra o simulador)
 docker-compose.carga.yml override SÓ do ensaio do CQ-01: postgres com 1 vCPU e 2 GB (instância do ADR-001); usado pelo medir-cq01.ps1 -RecursosProducao
 services/api-contatos/   porta de entrada: auth, contatos, importações, /planos, rotas /interno; test/ = unitários sem stack (T-ISO-13, T-OBS-03, T-RES-07)
 services/importacao/     worker BullMQ: lê o CSV do job, valida, envia lotes à API; /saude interno na 3001 (sem porta publicada); test/ = unitários sem stack
@@ -53,13 +55,13 @@ services/notificacoes/   worker BullMQ da fila "emails" (bloco 10): monta e envi
 db/init/                 cria papéis do Postgres (roda só no primeiro boot)
 db/migrations/           schemas, tabelas, RLS, grants
 db/migrate.js            aplica migrações (imagem orbitati/migrate: db/Dockerfile, pacote próprio fora dos workspaces)
-deploy/k8s/              manifests do kind (namespace orbitati), aplicados pelo scripts/deploy-kind.ps1; exemplos/ = Secret com valores falsos (fora do apply)
+deploy/k8s/              manifests do kind (namespace orbitati), aplicados pelo scripts/deploy-kind.ps1; 70-web.yaml = Portal na NodePort 30080; exemplos/ = Secret com valores falsos (fora do apply)
 tests/                   testes de integração (isolamento, RLS, importação, confirmação de e-mail, interações e "esfriando", CQ-03); tests/apoio/ = funções comuns, inclusive mailpit.js (não são testes)
-docs/ensaios/            relatórios datados de medição (CQ-01, CQ-03, CQ-04, CQ-05, Lighthouse); cq04-*-amostras.csv = CSV da sonda
+docs/ensaios/            relatórios datados de medição (CQ-01, CQ-03, CQ-04 e T-CQ04-02, CQ-05, Lighthouse); cq04-*-amostras.csv = CSV da sonda
 backups/                 dumps e CSVs do bloco 11 (FORA do git: dado pessoal); criado pelo backup.ps1
 tests/carga/             k6 (CQ-01): cq01.js (cenários), janelas.js (veredito "na janela" x "geral") e teste; resultados/ = saída do medir-cq01.ps1 (k6.json fora do git)
 scripts/                 seed.js (contas de demo), deploy-kind.ps1 (bloco 6), demo-isolamento.ps1, demo-degradacao.ps1 (T-RES), ensaio-reprocessamento.ps1 (T-IMP-14), medir-cq01.ps1 (CQ-01, bloco 9), backup.ps1, ensaio-restauracao.ps1, restaurar-um-tenant.ps1 e sonda.ps1 (bloco 11; lib-ensaio.ps1 = funções comuns; sql/ = consultas que eles rodam) e utilitários
-web/                     Portal Web: SPA React (src/), nginx (nginx/), Dockerfile, design system
+web/                     Portal Web: SPA React (src/), nginx (nginx/: template, cabeçalhos e o 16-api-resolver.envsh), Dockerfile, design system
 web/simulador/           simulador do contrato (docs/contrato-api.md) para o Portal rodar sem a API; fora da imagem
 web/e2e/                 E2E e capturas (Playwright); capturas em web/e2e/capturas/ (fora do git)
 ```
@@ -69,24 +71,24 @@ web/e2e/                 E2E e capturas (Playwright); capturas em web/e2e/captur
 ```
 npm install                           # dependências da raiz (Vitest, pg) e dos services/*
 npm run env                           # cria o .env (senhas aleatórias) ou só acrescenta as chaves novas do .env.example; rode depois de todo git pull
-docker compose up -d --build --wait   # sobe tudo (postgres, redis, migrate, api, importacao, notificacoes, mailpit)
+docker compose up -d --build --wait   # sobe tudo (postgres, redis, migrate, api, importacao, notificacoes, mailpit, web)
 docker compose run --rm migrate       # aplica migrações pendentes
 npm test                              # todos os testes (stack precisa estar no ar)
 TESTES_LENTOS=1 npm test              # inclui o T-IMP-13 (~25 s: prova a pausa de 500 ms); CI e antes de entrega
 npm run seed                          # tenants de demonstração DevSolo e TechConsult, com interações retroativas (idempotente; SEED_URL)
 npm run seed -- --sem-mudancas        # o mesmo, mas sai com código 1 se criar ou alterar algo (prova de idempotência do CI)
-powershell -ExecutionPolicy Bypass -File .\scripts\demo-isolamento.ps1 [-SemPausa] [-BaseUrl <url>]
+powershell -ExecutionPolicy Bypass -File .\scripts\demo-isolamento.ps1 [-SemPausa] [-BaseUrl <url>]   # padrão a API (3000); pelo Portal: http://127.0.0.1:8080/api; no kind: http://127.0.0.1:30080/api
 powershell -ExecutionPolicy Bypass -File .\scripts\demo-degradacao.ps1 [-SemPausa]   # para importacao, redis e postgres e religa (T-RES-01 a 07; o 06 é o cadastro sem a fila de e-mail)
 powershell -ExecutionPolicy Bypass -File .\scripts\ensaio-reprocessamento.ps1 [-Quedas 2]  # T-IMP-14: mata o worker no meio de 5.000 linhas (1 a 3 min)
 powershell -ExecutionPolicy Bypass -File .\scripts\backup.ps1               # CQ-05: pg_dump -Fc + foto da origem em backups/
 powershell -ExecutionPolicy Bypass -File .\scripts\ensaio-restauracao.ps1 [-SemPapeis]   # CQ-05: restaura o último backup no postgres-ensaio, verifica e remove
 powershell -ExecutionPolicy Bypass -File .\scripts\restaurar-um-tenant.ps1 -Email <admin>  # CSVs do tenant no formato do modelo de importação
-powershell -ExecutionPolicy Bypass -File .\scripts\sonda.ps1 [-Url http://127.0.0.1:30080/saude] [-Minutos 60] [-IntervaloSegundos 15]  # CQ-04 (127.0.0.1, nunca localhost: O1)
+powershell -ExecutionPolicy Bypass -File .\scripts\sonda.ps1 [-Url http://127.0.0.1:30080/api/saude] [-Minutos 60] [-IntervaloSegundos 15]  # CQ-04 (127.0.0.1, nunca localhost: O1)
 powershell -ExecutionPolicy Bypass -File .\scripts\medir-cq01.ps1 [-RecursosProducao] [-ManterDados]   # CQ-01 com e sem mitigação (~8 min); no fim devolve o worker a 100/500, apaga os tenants e (com -RecursosProducao) recria o postgres sem limite
 docker compose --profile carga run --rm k6 run /scripts/cq01.js   # só o k6 (grafana/k6:1.3.0), na rede do compose
 npx vitest run tests/cq03-onboarding.test.js   # só o CQ-03 (20 cadastros; imprime p50, p90 e máximo)
-docker compose logs -f api-contatos importacao notificacoes
-powershell -ExecutionPolicy Bypass -File .\scripts\deploy-kind.ps1 [-SemBuild] [-SemSeed]  # kind "saas": build, kind load, apply, migração, rollout restart, seed
+docker compose logs -f api-contatos importacao notificacoes web
+powershell -ExecutionPolicy Bypass -File .\scripts\deploy-kind.ps1 [-SemBuild] [-SemSeed]  # kind "saas": build (com o web), kind load, apply, migração, rollout restart, seed em http://127.0.0.1:30080/api
 kubectl get pods -n orbitati          # estado no kind (nunca imprima o Secret: nada de get secret -o yaml)
 kubectl -n orbitati port-forward svc/mailpit 18025:8025   # caixa do Mailpit do kind em http://localhost:18025
 docker compose down -v                # derruba e APAGA os dados (reset total)
@@ -100,30 +102,30 @@ npm run dev                           # Portal em modo dev contra a API real em 
 npm test                              # unitários do Portal e do simulador (Vitest, não precisa de stack)
 npm run simulador                     # só o simulador (3001), para a imagem ou os E2E
 docker build -t orbitati/web:0.1.0 .  # imagem do Portal (nginx + build)
-docker run --rm -p 8080:8080 -e API_UPSTREAM=host.docker.internal:3001 orbitati/web:0.1.0
+docker run --rm -p 8080:8080 -e API_UPSTREAM=host.docker.internal:3001 orbitati/web:0.1.0   # imagem contra o simulador (com o compose no ar, a 8080 é do serviço web)
 npm run test:e2e                      # E2E contra E2E_URL (padrão http://localhost:8080)
 npm run capturas                      # 8 telas x 4 larguras x 2 temas em web/e2e/capturas/
-npm run lighthouse                    # Lighthouse mobile em /entrar e /contatos (via npx)
+npm run lighthouse                    # Lighthouse mobile em /entrar e /contatos (via npx; pelo PowerShell, não pelo Git Bash: spawn UNKNOWN)
 ```
 
-API local: http://localhost:3000 · no kind: http://localhost:30080 · Portal: http://localhost:8080
-(hoje pelo `docker run` acima; o serviço `web` entra no compose na Fase 6 do bloco 13) · Mailpit: http://localhost:8025
+Portal: http://localhost:8080 (serviço `web` do compose; `/api/*` vai para a API) · API direta: http://localhost:3000
+(só em 127.0.0.1, para testes e scripts) · kind: http://localhost:30080 (Portal; a API só por `/api`) · Mailpit: http://localhost:8025
 
 `PORTAL_URL` (obrigatória na API; a API não sobe sem ela) é a base do link do e-mail:
 `${PORTAL_URL}/confirmar-email?token=...`. Local `http://localhost:8080` (`.env`); no kind `http://localhost:30080`
-no manifesto, que hoje é a API e dá 404 no link até a Fase 6 (N1 em `docs/pendencias-bloco-7.md`). Nunca
-"localhost" no código.
+no manifesto, que desde a Fase 6 é o Portal (N1 fechada). Nunca "localhost" no código.
 
 Variáveis do Portal:
 
 | Variável | Onde | Padrão | Para quê |
 |---|---|---|---|
-| `API_UPSTREAM` | imagem do `web` | `api-contatos:3000` | Para onde o nginx manda o `/api` (host:porta, sem barra) |
+| `API_UPSTREAM` | imagem do `web` | `api-contatos:3000` | Para onde o nginx manda o `/api` (host:porta, sem barra). No kind, nome completo: `api-contatos.orbitati.svc.cluster.local:3000` (o `resolver` do nginx não usa o `search`) |
+| `API_RESOLVER` | imagem do `web` | o `nameserver` do `/etc/resolv.conf` | DNS que o nginx consulta (compose `127.0.0.11`, kind o kube-dns). Só defina para forçar outro |
 | `API_ALVO` | `npm run dev` | `http://localhost:3000` | Para onde o Vite manda o `/api` em desenvolvimento |
 | `E2E_URL` | Playwright e Lighthouse | `http://localhost:8080` | Portal que a suíte testa (8080 Docker, 30080 kind) |
 | `E2E_DEMO_EMAIL` / `E2E_DEMO_SENHA` | capturas e Lighthouse | `marcelo@devsolo.dev` / `Demo@2026` | Conta com dados (na stack real, vem do seed do bloco 3) |
 | `SIM_PORTA`, `SIM_FILA=fora`, `SIM_LIMITE_RPM`, `SIM_PORTAL_URL` | simulador | 3001, ok, plano, `:5173` | Porta e cenários de falha do simulador |
-| `WEB_PORTA` | compose (Fase 6, pendente) | 8080 | Porta publicada do Portal |
+| `WEB_PORTA` | compose (`.env`) | 8080 | Porta publicada do Portal (a única exposta na VM) |
 
 ## Regras de multi-tenancy (inegociáveis)
 

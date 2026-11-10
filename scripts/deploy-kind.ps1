@@ -5,15 +5,18 @@
 .DESCRIPTION
   1. Confere kind, kubectl, docker, o .env e o cluster "saas"; usa o contexto kind-saas.
   2. Build das imagens com tag fixa 0.1.0 (pelo docker compose, que já tem os parâmetros de build).
-  3. kind load docker-image das 4 imagens nossas. Postgres, Redis e Mailpit o nó baixa sozinho.
+  3. kind load docker-image das 5 imagens nossas (o web desde o bloco 13). Postgres, Redis e Mailpit o nó
+     baixa sozinho.
   4. Cria o namespace orbitati e, SÓ SE NÃO EXISTIR, o Secret orbitati-segredos a partir do .env.
      Nenhum valor do Secret é impresso.
   5. Gera o ConfigMap postgres-init de db/init/01-papeis.sh, aplica postgres e redis e espera os dois.
   6. Recria o Job de migração e espera terminar (se falhar, mostra o log e para).
-  7. Aplica api-contatos, importacao, mailpit e notificacoes (bloco 10) e faz rollout restart: com tag
-     fixa e IfNotPresent, o pod não troca de imagem sozinho depois de um rebuild; o restart cria pods
-     novos com a imagem recém-carregada.
-  8. Roda o seed contra http://127.0.0.1:30080 e mostra /saude e os pods.
+  7. Aplica api-contatos, importacao, mailpit, notificacoes (bloco 10) e web (bloco 13) e faz rollout
+     restart: com tag fixa e IfNotPresent, o pod não troca de imagem sozinho depois de um rebuild; o
+     restart cria pods novos com a imagem recém-carregada. A API é aplicada ANTES do web: num cluster que
+     ainda tem a API como NodePort 30080, o apply dela (agora ClusterIP) libera a porta para o web.
+  8. Roda o seed contra http://127.0.0.1:30080/api (o Portal, que faz proxy para a API) e mostra
+     /api/saude e os pods.
 
   Este script NUNCA apaga namespace nem PVC. Reset total (APAGA o banco, equivale ao
   `docker compose down -v`): kubectl delete namespace orbitati
@@ -40,11 +43,12 @@ $K8s = Join-Path $Raiz 'deploy\k8s'
 $Cluster = 'saas'
 $Contexto = "kind-$Cluster"
 $Ns = 'orbitati'
-$Url = 'http://127.0.0.1:30080'
+# A 30080 é o nginx do Portal (bloco 13, Fase 6); a API só existe dentro do cluster, atrás do /api.
+$Url = 'http://127.0.0.1:30080/api'
 # Só as NOSSAS imagens passam pelo kind load. As de terceiros (postgres, redis e, no bloco 10, o Mailpit
 # v1.32.0) o nó baixa sozinho do Docker Hub: o kind load de imagem multiplataforma vinda do Docker Desktop
 # falha ("ctr: content digest ... not found", testado com o Mailpit em 08/11/2026).
-$Imagens = @('orbitati/migrate:0.1.0', 'orbitati/api-contatos:0.1.0', 'orbitati/importacao:0.1.0', 'orbitati/notificacoes:0.1.0')
+$Imagens = @('orbitati/migrate:0.1.0', 'orbitati/api-contatos:0.1.0', 'orbitati/importacao:0.1.0', 'orbitati/notificacoes:0.1.0', 'orbitati/web:0.1.0')
 
 function Passo([string]$Titulo) {
   Write-Host ''
@@ -75,7 +79,7 @@ try {
 
   if (-not $SemBuild) {
     Passo '2. Build das imagens (tag 0.1.0)'
-    Rodar docker compose build migrate api-contatos importacao notificacoes
+    Rodar docker compose build migrate api-contatos importacao notificacoes web
 
     Passo '3. kind load'
     foreach ($img in $Imagens) { Rodar kind load docker-image $img --name $Cluster }
@@ -114,16 +118,19 @@ try {
   }
   Kube logs job/migrate --tail=20
 
-  Passo '7. API, workers e Mailpit'
+  Passo '7. API, workers, Mailpit e Portal'
+  # Ordem importa: a API (ClusterIP) primeiro libera a NodePort 30080 num cluster antigo; o web vem depois.
   Kube apply -f (Join-Path $K8s '40-api-contatos.yaml') -f (Join-Path $K8s '50-importacao.yaml') `
     -f (Join-Path $K8s '55-mailpit.yaml') -f (Join-Path $K8s '60-notificacoes.yaml')
+  Kube apply -f (Join-Path $K8s '70-web.yaml')
   # Tag fixa + IfNotPresent: sem o restart, pods antigos continuariam com a imagem anterior.
   # (O Mailpit tem versão fixa de terceiros: não precisa de restart.)
-  Kube rollout restart deployment/api-contatos deployment/importacao deployment/notificacoes
+  Kube rollout restart deployment/api-contatos deployment/importacao deployment/notificacoes deployment/web
   Kube rollout status deployment/mailpit --timeout=120s
   Kube rollout status deployment/api-contatos --timeout=180s
   Kube rollout status deployment/importacao --timeout=180s
   Kube rollout status deployment/notificacoes --timeout=180s
+  Kube rollout status deployment/web --timeout=120s
 
   if (-not $SemSeed) {
     Passo "8. Seed ($Url)"
