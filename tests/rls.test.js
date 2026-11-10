@@ -1,4 +1,4 @@
-// Isolamento no banco (RLS): T-RLS-01 a T-RLS-19 do docs/plano-de-testes.md, seção 2.1.
+// Isolamento no banco (RLS): T-RLS-01 a T-RLS-20 do docs/plano-de-testes.md, seção 2.1.
 //
 // Conecta DIRETO no Postgres com cada papel, como a API e o worker farão, e prova que o isolamento
 // é do banco e não depende do código. Os testes rodam no host (Windows): a conexão é 127.0.0.1:5432,
@@ -183,6 +183,17 @@ describe('isolamento por tenant (api_contatos)', () => {
     });
     expect(tenantGravado).toBe(A.id);
   });
+
+  it('T-RLS-20: interação de A apontando para contato de B é recusada pela chave estrangeira composta', async () => {
+    // A verificação de chave estrangeira do PostgreSQL IGNORA o RLS. Com uma FK só em contato_id, este INSERT
+    // passaria (o contato de B existe) e A teria uma interação pendurada num contato de B. A FK composta
+    // (contato_id, tenant_id) exige que o contato seja do MESMO tenant da interação (migração 003).
+    await expect(
+      comTenant(api, A.id, (c) => c.query("INSERT INTO orbita.interacoes (contato_id, tipo) VALUES ($1, 'ligacao')", [B.contatos[0]])),
+    ).rejects.toMatchObject({ code: '23503', constraint: 'interacoes_contato_fk' });
+    // Controle: no contato do próprio tenant, o mesmo INSERT passa.
+    await comTenant(api, A.id, (c) => c.query("INSERT INTO orbita.interacoes (contato_id, tipo) VALUES ($1, 'ligacao')", [A.contatos[0]]));
+  });
 });
 
 // ===========================================================================================
@@ -303,7 +314,7 @@ describe('guardas para objetos futuros', () => {
         AND (EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attname = 'tenant_id' AND NOT a.attisdropped)
              OR (n.nspname = 'orbita' AND c.relname = 'tenants'))`);
     expect(rows.map((r) => r.tabela).sort()).toEqual(
-      expect.arrayContaining(['importacao.erros_linha', 'importacao.execucoes', 'orbita.contatos', 'orbita.importacoes', 'orbita.lotes_aplicados', 'orbita.tenants', 'orbita.usuarios']),
+      expect.arrayContaining(['importacao.erros_linha', 'importacao.execucoes', 'orbita.contatos', 'orbita.importacoes', 'orbita.interacoes', 'orbita.lotes_aplicados', 'orbita.tenants', 'orbita.usuarios']),
     );
     const foraDaRegra = rows.filter(
       (r) => !r.enable || !r.force || !/NULLIF/i.test(r.qual ?? '') || !/NULLIF/i.test(r.with_check ?? ''),

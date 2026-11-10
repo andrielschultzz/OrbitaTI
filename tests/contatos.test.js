@@ -5,9 +5,9 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { cadastrar, chamar, limparTenants, randomUUID } from './apoio/api.js';
 
-// Formato do objeto Contato (contrato, seção 5). estagio entra no bloco 12. Nunca tenant_id.
+// Formato do objeto Contato (contrato, seção 5). estagio entrou no bloco 12. Nunca tenant_id.
 const CAMPOS_CONTATO = [
-  'atualizado_em', 'criado_em', 'email', 'empresa', 'id', 'nome', 'observacao', 'telefone', 'ultima_interacao_em',
+  'atualizado_em', 'criado_em', 'email', 'empresa', 'estagio', 'id', 'nome', 'observacao', 'telefone', 'ultima_interacao_em',
 ];
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const NAO_ENCONTRADO = { erro: 'Contato não encontrado.', codigo: 'NAO_ENCONTRADO' };

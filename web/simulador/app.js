@@ -430,7 +430,7 @@ export function buildSimulador({
         .filter((c) => c.estagio !== 'perdido')
         .map((c) => ({ c, ref: Date.parse(c.ultima_interacao_em ?? c.criado_em) })) // COALESCE
         .filter(({ ref }) => agora - ref > dias * DIA)
-        .sort((a, b) => a.ref - b.ref)
+        .sort((a, b) => a.ref - b.ref || (a.c.id < b.c.id ? -1 : 1)) // ORDER BY referência, id
         .slice(0, limite)
         .map(({ c, ref }) => ({
           ...contatoPublico(c),
@@ -498,7 +498,7 @@ export function buildSimulador({
     const c = buscarContato(req);
     const itens = [...estado.interacoes.values()]
       .filter((i) => i.contato_id === c.id)
-      .sort((a, b) => Date.parse(b.ocorrida_em) - Date.parse(a.ocorrida_em))
+      .sort((a, b) => Date.parse(b.ocorrida_em) - Date.parse(a.ocorrida_em) || (a.id < b.id ? 1 : -1)) // ocorrida_em DESC, id DESC
       .map(interacaoPublica);
     return { itens };
   });
@@ -535,7 +535,7 @@ export function buildSimulador({
         contato_id: c.id,
         usuario_id: req.usuario.sub,
         tipo: req.body.tipo,
-        nota: req.body.nota ?? null,
+        nota: req.body.nota?.trim() || null, // só espaços vira null, como na API
         ocorrida_em: ocorrida.toISOString(),
         criado_em: agora.toISOString(),
       };
