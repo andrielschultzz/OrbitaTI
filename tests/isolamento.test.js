@@ -1,4 +1,4 @@
-// Isolamento pela API (CQ-02): T-ISO-01 a 07, 10, 11, 15 e 19 do docs/plano-de-testes.md.
+// Isolamento pela API (CQ-02): T-ISO-01 a 07, 10, 11, 15 a 17 e 19 do docs/plano-de-testes.md.
 // O T-ISO-13 (nenhuma rota aceita tenant_id) está em services/api-contatos/test/rotas-sem-tenant.test.js.
 //
 // A ideia central: o tenant A tenta mexer, pelo id direto, em um contato do tenant B. A resposta tem de
@@ -12,6 +12,7 @@ import {
   assinar,
   cadastrar,
   chamar,
+  comoDono,
   criarImportacaoNoBanco,
   limparTenants,
   payload,
@@ -34,6 +35,10 @@ const ROTAS_COM_ID = [
   { metodo: 'GET', caminho: '/contatos/:id', caso: 'T-ISO-01' },
   { metodo: 'PATCH', caminho: '/contatos/:id', caso: 'T-ISO-02', corpo: { nome: 'Invasor', email: 'invasor@a.com' } },
   { metodo: 'DELETE', caminho: '/contatos/:id', caso: 'T-ISO-03' },
+  { metodo: 'GET', caminho: '/contatos/:id/interacoes', caso: 'T-ISO-16' },
+  // ocorrida_em no presente: se o isolamento falhasse, o ultima_interacao_em de B mudaria e o
+  // dadosDeBIntactos pegaria (além da interação a mais na lista de B).
+  { metodo: 'POST', caminho: '/contatos/:id/interacoes', caso: 'T-ISO-16', corpo: { tipo: 'ligacao', nota: 'Invasor' } },
   { metodo: 'GET', caminho: '/importacoes/:id', caso: 'T-ISO-08', recurso: 'importacao' },
   {
     metodo: 'POST', caminho: '/interno/importacoes/:id/inicio', caso: 'T-ISO-09', recurso: 'importacao', token: 'servico',
@@ -50,6 +55,7 @@ const ROTAS_COM_ID = [
 const ROTAS_SEM_ID = [
   { metodo: 'GET', caminho: '/contatos', caso: 'T-ISO-04 e T-ISO-07' },
   { metodo: 'POST', caminho: '/contatos', caso: 'T-ISO-06' },
+  { metodo: 'GET', caminho: '/contatos/esfriando', caso: 'T-ISO-17' },
   { metodo: 'POST', caminho: '/importacoes', caso: 'T-IMP-02' }, // tests/importacao.test.js
 ];
 
@@ -95,6 +101,10 @@ async function dadosDeBIntactos() {
   const c = await chamar('GET', `/contatos/${contatoB.id}`, { token: B.token });
   expect(c.status).toBe(200);
   expect(c.corpo).toEqual(contatoB);
+  // T-ISO-16: nenhuma interação foi plantada no contato de B.
+  const hist = await chamar('GET', `/contatos/${contatoB.id}/interacoes`, { token: B.token });
+  expect(hist.status).toBe(200);
+  expect(hist.corpo.itens).toEqual([]);
   const i = await chamar('GET', `/importacoes/${importacaoB.id}`, { token: B.token });
   expect(i.status).toBe(200);
   expect(i.corpo).toEqual(importacaoB);
@@ -147,6 +157,55 @@ describe('T-ISO-04 e T-ISO-07: listagem e busca não misturam tenants', () => {
   it('controle: a busca de A acha o contato de A (prova que a busca funciona, não que volta vazia)', async () => {
     const r = await chamar('GET', '/contatos?busca=Secreto', { token: A.token });
     expect(r.corpo.itens.map((c) => c.nome)).toEqual(['Cliente Secreto de A']);
+  });
+});
+
+describe('T-ISO-17: "esfriando" não mostra contatos de outro tenant', () => {
+  const DIA = 24 * 60 * 60 * 1000;
+  const frios = {}; // nome -> id, dos dois tenants
+
+  /** Contato com uma interação de `dias` atrás (ou, com dias = null, nunca contatado e cadastrado há 200 dias). */
+  async function contatoFrio(tenant, nome, dias) {
+    const r = await chamar('POST', '/contatos', { token: tenant.token, corpo: { nome } });
+    expect(r.status).toBe(201);
+    if (dias === null) {
+      // A API grava criado_em = now(); só o dono do banco consegue "envelhecer" o cadastro (fixture).
+      await comoDono(tenant.tenantId, (c) =>
+        c.query("UPDATE orbita.contatos SET criado_em = now() - interval '200 days' WHERE id = $1", [r.corpo.id]),
+      );
+    } else {
+      const i = await chamar('POST', `/contatos/${r.corpo.id}/interacoes`, {
+        token: tenant.token,
+        corpo: { tipo: 'email', ocorrida_em: new Date(Date.now() - dias * DIA).toISOString() },
+      });
+      expect(i.status).toBe(201);
+    }
+    frios[nome] = r.corpo.id;
+  }
+
+  beforeAll(async () => {
+    await contatoFrio(B, 'Frio de B com interação', 300);
+    await contatoFrio(B, 'Frio de B nunca contatado', null);
+    await contatoFrio(A, 'Frio de A', 150);
+  });
+
+  it.each([
+    ['padrão (90 dias)', '/contatos/esfriando'],
+    ['dias=1 e limite=100', '/contatos/esfriando?dias=1&limite=100'],
+    ['com ?tenant_id=<B>', '/contatos/esfriando?tenant_id=TENANT_B'],
+  ])('%s -> só contatos de A', async (_nome, caminho) => {
+    const r = await chamar('GET', caminho.replace('TENANT_B', B.tenantId), { token: A.token });
+    expect(r.status).toBe(200);
+    const ids = r.corpo.itens.map((c) => c.id);
+    expect(ids).toContain(frios['Frio de A']); // controle: a lista funciona, não volta vazia
+    expect(ids).not.toContain(frios['Frio de B com interação']);
+    expect(ids).not.toContain(frios['Frio de B nunca contatado']);
+    expect(JSON.stringify(r.corpo)).not.toContain('de B');
+  });
+
+  it('controle: B vê os dois frios dele (prova que o filtro acima não é só "ninguém é frio")', async () => {
+    const r = await chamar('GET', '/contatos/esfriando', { token: B.token });
+    expect(r.corpo.itens.map((c) => c.nome)).toEqual(['Frio de B com interação', 'Frio de B nunca contatado']);
   });
 });
 

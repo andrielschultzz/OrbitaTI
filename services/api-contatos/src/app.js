@@ -17,6 +17,7 @@ import { criarFila } from './fila.js';
 import { CADASTRO_POR_MINUTO_PADRAO, criarRedisDoLimite, registrarLimite } from './limite.js';
 import rotasAuth from './rotas/auth.js';
 import rotasContatos from './rotas/contatos.js';
+import rotasInteracoes from './rotas/interacoes.js';
 import rotasImportacoes from './rotas/importacoes.js';
 import rotasInterno from './rotas/interno.js';
 import rotasPlanos from './rotas/planos.js';
@@ -232,6 +233,7 @@ export function buildApp(opcoes = {}) {
   app.register(rotasPlanos);
   app.register(rotasAuth, { pool, fila, limiteCadastroPorMin, portalUrl });
   app.register(rotasContatos, { pool });
+  app.register(rotasInteracoes, { pool }); // bloco 12
   app.register(rotasImportacoes, { pool, fila });
   app.register(rotasInterno, { pool });
 

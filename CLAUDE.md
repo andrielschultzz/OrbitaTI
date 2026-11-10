@@ -38,14 +38,14 @@ Se uma tarefa exigir contrariar um ADR, **pare e pergunte**. Não mude a decisã
   imagem final tem só nginx + arquivos estáticos. Pacote independente, **fora dos workspaces** da raiz
   (tem `package.json` e `node_modules` próprios; o `vitest.config.js` da raiz, criado no bloco 1, exclui `web/**`). Testes: Vitest
   (unitários) e Playwright (E2E e capturas).
-- **Estado do Portal (07/11/2026):** roda contra o **simulador do contrato** (`web/simulador/`, Fastify em
-  memória, porta 3001). A integração com a API real (bloco 13, Fase 6) está **pendente** até existirem os
-  blocos 2, 4 e 12. Pendências e lista para a VM em `docs/portal-pendencias.md`
+- **Estado do Portal (09/11/2026):** roda contra o **simulador do contrato** (`web/simulador/`, Fastify em
+  memória, porta 3001). Os blocos 2, 4 e 12 já existem na API; a integração com a API real (bloco 13, Fase 6)
+  é o próximo passo. Pendências e lista para a VM em `docs/portal-pendencias.md`
 
 ## Estrutura
 
 ```
-.github/workflows/ci.yml GitHub Actions: job api (compose + npm test com TESTES_LENTOS=1) e job web (unitários, build, E2E contra o simulador)
+.github/workflows/ci.yml GitHub Actions: job api (compose + npm test com TESTES_LENTOS=1 + seed duas vezes, a 2ª com --sem-mudancas) e job web (unitários, build, E2E contra o simulador)
 docker-compose.carga.yml override SÓ do ensaio do CQ-01: postgres com 1 vCPU e 2 GB (instância do ADR-001); usado pelo medir-cq01.ps1 -RecursosProducao
 services/api-contatos/   porta de entrada: auth, contatos, importações, /planos, rotas /interno; test/ = unitários sem stack (T-ISO-13, T-OBS-03, T-RES-07)
 services/importacao/     worker BullMQ: lê o CSV do job, valida, envia lotes à API; /saude interno na 3001 (sem porta publicada); test/ = unitários sem stack
@@ -54,7 +54,7 @@ db/init/                 cria papéis do Postgres (roda só no primeiro boot)
 db/migrations/           schemas, tabelas, RLS, grants
 db/migrate.js            aplica migrações (imagem orbitati/migrate: db/Dockerfile, pacote próprio fora dos workspaces)
 deploy/k8s/              manifests do kind (namespace orbitati), aplicados pelo scripts/deploy-kind.ps1; exemplos/ = Secret com valores falsos (fora do apply)
-tests/                   testes de integração (isolamento, RLS, importação, confirmação de e-mail, CQ-03); tests/apoio/ = funções comuns, inclusive mailpit.js (não são testes)
+tests/                   testes de integração (isolamento, RLS, importação, confirmação de e-mail, interações e "esfriando", CQ-03); tests/apoio/ = funções comuns, inclusive mailpit.js (não são testes)
 docs/ensaios/            relatórios datados de medição (CQ-01, CQ-03, CQ-04, CQ-05, Lighthouse); cq04-*-amostras.csv = CSV da sonda
 backups/                 dumps e CSVs do bloco 11 (FORA do git: dado pessoal); criado pelo backup.ps1
 tests/carga/             k6 (CQ-01): cq01.js (cenários), janelas.js (veredito "na janela" x "geral") e teste; resultados/ = saída do medir-cq01.ps1 (k6.json fora do git)
@@ -73,7 +73,8 @@ docker compose up -d --build --wait   # sobe tudo (postgres, redis, migrate, api
 docker compose run --rm migrate       # aplica migrações pendentes
 npm test                              # todos os testes (stack precisa estar no ar)
 TESTES_LENTOS=1 npm test              # inclui o T-IMP-13 (~25 s: prova a pausa de 500 ms); CI e antes de entrega
-npm run seed                          # tenants de demonstração DevSolo e TechConsult (idempotente; SEED_URL)
+npm run seed                          # tenants de demonstração DevSolo e TechConsult, com interações retroativas (idempotente; SEED_URL)
+npm run seed -- --sem-mudancas        # o mesmo, mas sai com código 1 se criar ou alterar algo (prova de idempotência do CI)
 powershell -ExecutionPolicy Bypass -File .\scripts\demo-isolamento.ps1 [-SemPausa] [-BaseUrl <url>]
 powershell -ExecutionPolicy Bypass -File .\scripts\demo-degradacao.ps1 [-SemPausa]   # para importacao, redis e postgres e religa (T-RES-01 a 07; o 06 é o cadastro sem a fila de e-mail)
 powershell -ExecutionPolicy Bypass -File .\scripts\ensaio-reprocessamento.ps1 [-Quedas 2]  # T-IMP-14: mata o worker no meio de 5.000 linhas (1 a 3 min)

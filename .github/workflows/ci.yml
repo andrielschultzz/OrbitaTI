@@ -58,6 +58,16 @@ jobs:
         env:
           TESTES_LENTOS: '1'
 
+      # Seed no banco do CI, que nasce vazio: cobre o caminho "conta nova" (cadastro, contatos com estágio,
+      # interações retroativas). Depois do npm test: os testes apagam só os tenants que eles criaram.
+      - name: Seed (1ª execução, banco sem as contas de demonstração)
+        run: npm run seed
+
+      # Idempotência: a 2ª execução não pode criar nem alterar nada. --sem-mudancas faz o seed sair com
+      # código 1 se criar ou alterar qualquer coisa, e o job falha.
+      - name: Seed (2ª execução, não pode criar nada)
+        run: npm run seed -- --sem-mudancas
+
       - name: Logs da stack (só se algo falhou)
         if: failure()
         run: |

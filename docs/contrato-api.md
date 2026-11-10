@@ -1,10 +1,11 @@
 # Contrato HTTP da API de Contatos
 
-**Versão:** 1.4 — 08/11/2026, derivada do `CLAUDE.md` e dos blocos 2, 4, 5, 10, 12 e 14.
+**Versão:** 1.5 — 09/11/2026, derivada do `CLAUDE.md` e dos blocos 2, 4, 5, 10, 12 e 14.
 Mudanças da 1.1 (Fase 0 do bloco 13): `GET /planos/atual` virou `GET /planos` pública; dados extras de erro no nível de cima; lacuna dos papéis declarada.
 Mudanças da 1.2 (bloco 4): e-mail repetido no CSV vira erro de linha (o simulador mudou junto); separador decidido pelo cabeçalho; reimportação não apaga dado com célula vazia; respostas, limites e erros das rotas `/interno` definidos (seção 8). Nenhuma rota usada pelo Portal mudou de formato.
 Mudanças da 1.3 (bloco 7): headers `x-ratelimit-*` documentados na seção 1 (já eram enviados desde o bloco 5); decisões da seção 11 registradas no ADR-004. Nenhum formato mudou.
 Mudanças da 1.4 (bloco 10): `GET /auth/confirmar` implementada, com rate limit de 10/min por IP; todo token ruim (ausente, vencido, adulterado, de sessão) é `LINK_INVALIDO`, nunca `VALIDACAO`; o cadastro passa a enfileirar o e-mail de confirmação. Nenhum formato mudou.
+Mudanças da 1.5 (bloco 12): seções 5 e 6 implementadas na API. Detalhes fechados (o simulador mudou junto): desempate por `id` na ordem do "esfriando" e da lista de interações; `nota` só com espaços vira `null`; `ocorrida_em` retroativo permitido sem limite; `usuario_id` vem do token. Nenhum formato mudou.
 
 ## Para que serve
 
@@ -202,7 +203,7 @@ Mudanças da 1.4 (bloco 10): `GET /auth/confirmar` implementada, com rate limit 
 ### `GET /contatos/esfriando?dias=90&limite=100` — bloco 12
 
 - **Parâmetros:** `dias` de 1 a 365, padrão 90; `limite` de 1 a 100, padrão 100. O Portal pede `limite=5`.
-- **Regra:** a data de referência é `COALESCE(ultima_interacao_em, criado_em)`. Entra na lista o contato cuja referência é mais antiga que `dias` dias, menos os de estágio `perdido`. A ordem é da referência mais antiga para a mais nova.
+- **Regra:** a data de referência é `COALESCE(ultima_interacao_em, criado_em)`. Entra na lista o contato cuja referência é mais antiga que `dias` dias, menos os de estágio `perdido`. A ordem é da referência mais antiga para a mais nova, com `id` como desempate (`ORDER BY referência, id`): uma importação grava o mesmo `criado_em` em vários contatos, e sem o desempate a ordem mudaria de uma chamada para outra.
   - **Por que `criado_em` e não "nunca contatado = mais frio":** depois de importar 500 contatos, todos estariam "nunca contatados" e lotariam o "Saindo de órbita" no primeiro dia. Com a referência, um contato só esfria depois de `dias` dias parado, desde o cadastro ou desde a última conversa.
 - **Sucesso:** `200 {"itens": [Contato + campos extras], "dias": 90, "limite": 5}`. Os campos extras são:
   - `dias_sem_interacao`: inteiro, contado a partir da referência;
@@ -220,18 +221,20 @@ Mudanças da 1.4 (bloco 10): `GET /auth/confirmar` implementada, com rate limit 
 ```
 
 - **`tipo`:** `ligacao` | `whatsapp` | `email` | `reuniao` | `outro`.
-- **`nota`:** opcional, até 2.000 caracteres.
+- **`nota`:** opcional, até 2.000 caracteres. Espaços nas pontas são removidos; nota só com espaços vira `null`.
+- **`usuario_id`:** quem registrou, tirado do token (`sub`); nunca vem do corpo. Fica `null` se o usuário for excluído.
 
 ### `GET /contatos/:id/interacoes`
 
-- **Sucesso:** `200 {"itens": [Interação, ...]}`, da mais recente para a mais antiga (`ocorrida_em`).
+- **Sucesso:** `200 {"itens": [Interação, ...]}`, da mais recente para a mais antiga (`ocorrida_em DESC, id DESC`).
 - **Erro:** 404 se o contato não existe ou é de outro tenant (T-ISO-16).
 
 ### `POST /contatos/:id/interacoes`
 
 - **Corpo:** `{"tipo": "...", "nota": "...", "ocorrida_em": "..."}`.
   - `ocorrida_em` é opcional; o padrão é agora.
-  - Não pode estar no futuro, com 5 min de tolerância para o relógio do celular adiantado.
+  - Não pode estar no futuro, com 5 min de tolerância para o relógio do celular adiantado (400 `VALIDACAO`, campo `ocorrida_em`).
+  - Pode estar no passado, inclusive antes do `criado_em` do contato: lançar o histórico de quem vinha de uma planilha é um uso real (e é o que o seed faz).
 - **Sucesso:** `201 {"interacao": Interação, "contato": Contato}`. O contato já vem atualizado, para o Portal não reimplementar a regra abaixo.
 - **Regra:** na mesma transação, `ultima_interacao_em = GREATEST(ultima_interacao_em, ocorrida_em)`. Registrar hoje uma ligação da semana passada não pode fazer o contato parecer mais frio.
 - **Erros:** 400; 404.
@@ -368,6 +371,8 @@ Registradas no [ADR-004](adr/adr-004-comunicacao-entre-servicos.md) (bloco 7). S
 | "Esfriando" usa `COALESCE(ultima_interacao_em, criado_em)` | Uma importação não lota o "Saindo de órbita" no primeiro dia |
 | Interação usa `GREATEST` | Lançar uma interação antiga não esfria o contato |
 | `ON DELETE CASCADE` nas interações | Excluir um contato com histórico não pode dar 500 |
+| Chave estrangeira composta `(contato_id, tenant_id)` nas interações (bloco 12) | A verificação de chave estrangeira do PostgreSQL ignora o RLS; com FK só em `contato_id`, um erro de código poderia pendurar uma interação de A num contato de B. O banco recusa (T-RLS-20) |
+| Desempate por `id` no "esfriando" (bloco 12) | Contatos importados juntos têm o mesmo `criado_em`; sem desempate, a ordem (e o corte do `limite=5`) mudaria a cada chamada |
 | Cabeçalho e colunas do CSV definidos; 422 para CSV vazio ou sem colunas | Fecha a lacuna "Formato do CSV" de `pendencias-bloco-7.md`; o erro chega na hora, não depois da fila |
 | Rotas `/interno/.../inicio` e `/falha` | Sem elas a importação pode nunca concluir (seção 8) |
 | E-mail repetido no mesmo CSV vira erro de linha (1.2) | O upsert de um lote com o mesmo e-mail duas vezes daria 500 no PostgreSQL; e "X contatos importados" contaria duas vezes o mesmo contato |

@@ -48,15 +48,29 @@ Fazer quando os blocos 2, 4 e 12 existirem. Detalhes em `prompts/bloco-13.md`, F
    - Sem o seed, o login falha e a suíte de capturas para no primeiro teste.
    - Alternativa: `E2E_DEMO_EMAIL` e `E2E_DEMO_SENHA` apontando para uma conta com dados.
    - Os demais E2E criam as próprias empresas e não dependem de seed.
-   - **O seed já existe (bloco 3, `npm run seed`), mas ainda não alimenta o "Saindo de órbita".**
-     - Hoje ele cria só contas e contatos. Todo contato nasce com `criado_em = agora`, sem interação.
-     - O "esfriando" usa `COALESCE(ultima_interacao_em, criado_em)` (contrato, K5). Então nenhum contato do
-       seed passa de 90 dias, e a lista fica vazia na demo e nas capturas.
-     - **No bloco 12**, quando `interacoes` existir, o seed precisa registrar interações com `ocorrida_em` no
-       passado, com os mesmos dias de `web/simulador/dados.js` (ex.: João Servidor, 412 dias).
-     - Isso só funciona se a rota de interação aceitar `ocorrida_em` retroativo, o que precisa ser conferido
-       no contrato antes de escrever o seed.
-     - Os contatos sem interação continuam recém-criados para o "esfriando", porque o `criado_em` não vem da API.
+   - **Resolvido no bloco 12 (09/11/2026): o seed alimenta o "Saindo de órbita".**
+     - O seed registra interações com `ocorrida_em` no passado, com os mesmos estágios e dias de
+       `web/simulador/dados.js` (contrato 1.5: `ocorrida_em` retroativo é permitido; só o futuro é recusado).
+     - DevSolo: João Servidor (412 dias), Ana Ribeiro (241) e Rafael Gomes (96) aparecem no "esfriando";
+       Patrícia Lopes (20) não. TechConsult: 16 interações, de 2 a 400 dias.
+     - Idempotente pela nota da interação do seed; respeita os 60 req/min do plano Individual (~20
+       requisições por execução, e espera o `Retry-After` se vier 429).
+   - **Limitação aceita: a API real não terá o contato frio "nunca contatado".**
+     - A API grava `criado_em = agora`, e o seed passa pela API (sem SQL privilegiado). Então um contato sem
+       interação fica recém-criado para o "esfriando" e só aparece depois de 90 dias.
+     - No simulador, **Carlos Menezes** (DevSolo) tem 180 dias de cadastro e nenhuma interação: aparece no
+       "Saindo de órbita" com o selo "nunca contatado". Na API real ele **não** aparece. O mesmo vale, na
+       TechConsult, para Gabriela Nunes (120 dias), Jorge Almeida (95) e Úrsula Freitas (160).
+     - **Efeito na Fase 6 (Portal ligado na API):** as capturas de `/contatos` vão divergir das tiradas
+       contra o simulador. O "Saindo de órbita" da DevSolo terá 3 itens em vez de 4, e nenhum com o selo
+       "nunca contatado" na lista.
+       - Conferido em 09/11/2026: nenhum E2E de `web/e2e/` conta os itens nem procura o Carlos Menezes.
+         O "nunca contatado" do `fluxo.spec.js` é o da página de um contato recém-criado, que a API real
+         também mostra.
+       - Quem escrever um E2E novo sobre o "Saindo de órbita" deve procurar "contém João Servidor, Ana
+         Ribeiro e Rafael Gomes, nessa ordem", não uma quantidade fixa.
+       - A regra do "nunca contatado frio" está provada na API pelo T-PROD-02 (`tests/interacoes.test.js`,
+         que envelhece o `criado_em` direto no banco).
 5. **Fila fora de verdade.** Hoje o E2E simula o 503 `FILA_INDISPONIVEL` no navegador (`page.route`).
    Isso prova que o Portal trata a resposta, não que a API a devolve. Na stack real, parar o Redis e
    repetir.

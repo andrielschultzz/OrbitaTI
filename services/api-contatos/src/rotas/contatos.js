@@ -8,12 +8,14 @@ import { withTenant } from '../db.js';
 import { ErroContrato, naoEncontrado, violouUnico } from '../erros.js';
 
 const LIMITE = 100;
-const NAO_ENCONTRADO = 'Contato não encontrado.';
+export const NAO_ENCONTRADO = 'Contato não encontrado.';
+export const ESTAGIOS = ['lead', 'proposta', 'cliente', 'perdido'];
 
 // Colunas devolvidas. tenant_id fica de fora de propósito (contrato: nenhuma resposta o devolve).
-// estagio entra no bloco 12.
-const COLUNAS = 'id, nome, email, telefone, empresa, observacao, ultima_interacao_em, criado_em, atualizado_em';
-const EDITAVEIS = ['nome', 'email', 'telefone', 'empresa', 'observacao']; // lista fechada: só estes viram SQL
+// Exportadas para rotas/interacoes.js, que devolve o contato atualizado junto com a interação.
+export const COLUNAS =
+  'id, nome, email, telefone, empresa, observacao, estagio, ultima_interacao_em, criado_em, atualizado_em';
+const EDITAVEIS = ['nome', 'email', 'telefone', 'empresa', 'observacao', 'estagio']; // lista fechada: só estes viram SQL
 
 // ---------- schemas ----------
 const opcional = (max, extra = {}) => ({ type: ['string', 'null'], maxLength: max, ...extra });
@@ -23,12 +25,13 @@ const camposEntrada = {
   telefone: opcional(30),
   empresa: opcional(120),
   observacao: opcional(500),
+  estagio: { type: 'string', enum: ESTAGIOS }, // nunca null: a coluna é NOT NULL (padrão 'lead')
 };
 const texto = { type: 'string' };
 const textoOuNulo = { type: ['string', 'null'] };
 // O response schema é uma segunda barreira: só estes campos são serializados, mesmo que um SELECT
 // futuro traga tenant_id por engano.
-const contatoSchema = {
+export const contatoSchema = {
   type: 'object',
   properties: {
     id: texto,
@@ -37,21 +40,22 @@ const contatoSchema = {
     telefone: textoOuNulo,
     empresa: textoOuNulo,
     observacao: textoOuNulo,
+    estagio: texto,
     ultima_interacao_em: textoOuNulo,
     criado_em: texto,
     atualizado_em: texto,
   },
 };
-const paramsId = {
+export const paramsId = {
   type: 'object',
   required: ['id'],
   properties: { id: { type: 'string', format: 'uuid' } }, // não-UUID -> 404 no setErrorHandler
 };
-const comId = { config: { naoEncontrado: NAO_ENCONTRADO } };
+export const comId = { config: { naoEncontrado: NAO_ENCONTRADO } };
 
 // ---------- normalização ----------
 /** Datas em ISO 8601 UTC; o resto como veio do banco. */
-const publico = (linha) => ({
+export const publico = (linha) => ({
   ...linha,
   ultima_interacao_em: linha.ultima_interacao_em?.toISOString() ?? null,
   criado_em: linha.criado_em.toISOString(),
@@ -62,6 +66,7 @@ const publico = (linha) => ({
 function normalizar(campo, valor) {
   if (valor === null) return null;
   if (campo === 'email') return valor.toLowerCase();
+  if (campo === 'estagio') return valor; // já validado pelo enum do schema
   const limpo = valor.trim();
   return campo === 'nome' || limpo !== '' ? limpo : null;
 }
@@ -117,11 +122,14 @@ export default async function rotasContatos(app, { pool }) {
       },
     },
     async (req, rep) => {
-      const valores = EDITAVEIS.map((campo) => normalizar(campo, req.body[campo] ?? null));
+      // estagio só entra no INSERT se veio: sem ele, vale o DEFAULT 'lead' da coluna (null violaria o NOT NULL).
+      const campos = EDITAVEIS.filter((campo) => campo !== 'estagio' || 'estagio' in req.body);
+      const valores = campos.map((campo) => normalizar(campo, req.body[campo] ?? null));
+      const marcadores = campos.map((_, i) => `$${i + 1}`).join(', ');
       // tenant_id não aparece: o DEFAULT da coluna pega o app.tenant_id da transação (regra 4).
       const linha = await withTenant(pool, req.user.tenant_id, async (c) => {
         const { rows } = await c.query(
-          `INSERT INTO orbita.contatos (${EDITAVEIS.join(', ')}) VALUES ($1, $2, $3, $4, $5) RETURNING ${COLUNAS}`,
+          `INSERT INTO orbita.contatos (${campos.join(', ')}) VALUES (${marcadores}) RETURNING ${COLUNAS}`,
           valores,
         );
         return rows[0];
@@ -129,6 +137,67 @@ export default async function rotasContatos(app, { pool }) {
         throw emailDuplicado(erro);
       });
       return rep.status(201).send(publico(linha));
+    },
+  );
+
+  // "Saindo de órbita" (contrato, seção 5). Caminho fixo: o Fastify o prefere a /contatos/:id, e o :id é
+  // validado como UUID, então "esfriando" nunca cairia lá.
+  //
+  // Referência = COALESCE(ultima_interacao_em, criado_em): um contato só esfria depois de `dias` dias parado,
+  // desde a última conversa ou, se nunca houve uma, desde o cadastro. Sem o criado_em, 500 contatos recém-
+  // importados ("nunca contatados") lotariam a lista no primeiro dia. O ", id" no ORDER BY deixa a ordem
+  // estável quando duas referências são iguais (importação em lote grava o mesmo criado_em em vários).
+  const REFERENCIA = 'COALESCE(ultima_interacao_em, criado_em)';
+  app.get(
+    '/contatos/esfriando',
+    {
+      schema: {
+        querystring: {
+          type: 'object',
+          additionalProperties: false, // ?tenant_id=... é descartado (T-ISO-13)
+          properties: {
+            dias: { type: 'integer', minimum: 1, maximum: 365, default: 90 },
+            limite: { type: 'integer', minimum: 1, maximum: LIMITE, default: LIMITE },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              itens: {
+                type: 'array',
+                items: {
+                  ...contatoSchema,
+                  properties: {
+                    ...contatoSchema.properties,
+                    dias_sem_interacao: { type: 'integer' },
+                    nunca_contatado: { type: 'boolean' },
+                  },
+                },
+              },
+              dias: { type: 'integer' },
+              limite: { type: 'integer' },
+            },
+          },
+        },
+      },
+    },
+    async (req) => {
+      const { dias, limite } = req.query;
+      // Os dias contam do now() do banco (o mesmo relógio que gravou criado_em), arredondados para baixo.
+      const { rows } = await withTenant(pool, req.user.tenant_id, (c) =>
+        c.query(
+          `SELECT ${COLUNAS},
+                  floor(extract(epoch FROM now() - ${REFERENCIA}) / 86400)::int AS dias_sem_interacao,
+                  ultima_interacao_em IS NULL AS nunca_contatado
+           FROM orbita.contatos
+           WHERE estagio <> 'perdido' AND ${REFERENCIA} < now() - make_interval(days => $1)
+           ORDER BY ${REFERENCIA}, id
+           LIMIT $2`,
+          [dias, limite],
+        ),
+      );
+      return { itens: rows.map(publico), dias, limite };
     },
   );
 
