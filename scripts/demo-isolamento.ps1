@@ -11,7 +11,9 @@
   Sai com código 0 se o isolamento se manteve e 1 se houve falha (o CI pode usar o código de saída).
 
 .PARAMETER BaseUrl
-  Endereço da API. Padrão http://127.0.0.1:3000 (compose). No kind: http://127.0.0.1:30080.
+  Endereço da API. Padrão http://127.0.0.1:3000 (compose, direto na API). Pelo Portal (o caminho do
+  usuário, com o nginx no meio): http://127.0.0.1:8080/api no compose e http://127.0.0.1:30080/api no kind,
+  onde a API não tem porta própria (ClusterIP desde a Fase 6 do bloco 13).
 
 .PARAMETER SemPausa
   Pula as pausas entre os passos. Use para rodar de ponta a ponta sem interação (testes e CI).

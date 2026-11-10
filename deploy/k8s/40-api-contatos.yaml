@@ -1,4 +1,6 @@
-# API de Contatos: 2 réplicas atrás do Service NodePort 30080 (o kind publica 30080 no localhost).
+# API de Contatos: 2 réplicas atrás de um Service ClusterIP (só dentro do cluster).
+# Desde a Fase 6 do bloco 13, quem fica na NodePort 30080 é o nginx do Portal (70-web.yaml), que faz proxy
+# de /api para cá. Antes disso a API era o NodePort 30080.
 #
 # Probes (diferença importante em relação ao compose):
 #   readiness  GET /saude  -> 503 com o banco fora: o pod sai do Service, mas NÃO é reiniciado.
@@ -11,14 +13,13 @@ metadata:
   name: api-contatos
   namespace: orbitati
 spec:
-  type: NodePort
+  type: ClusterIP
   selector:
     app: api-contatos
   ports:
     - name: http
       port: 3000
       targetPort: 3000
-      nodePort: 30080
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -62,17 +63,18 @@ spec:
               valueFrom: { secretKeyRef: { name: orbitati-segredos, key: JWT_SERVICO_SEGREDO } }
             - name: REDIS_URL
               valueFrom: { secretKeyRef: { name: orbitati-segredos, key: REDIS_URL } }
-            # 0, e não 1 (decisão J6 em docs/pendencias-bloco-7.md): a API está exposta DIRETO pelo
-            # NodePort, e o NAT do kind faz toda conexão chegar com IP interno. Com 1, qualquer cliente
-            # de localhost:30080 forjaria o X-Forwarded-For. Vira 1 quando o nginx do Portal entrar na frente.
+            # 1 (J6 em docs/pendencias-bloco-7.md): a API é ClusterIP e quem conecta nela é o nginx do Portal,
+            # que ACRESCENTA o IP que viu no X-Forwarded-For. Com 1 salto, um X-Forwarded-For forjado pelo
+            # cliente fica à esquerda e é ignorado. Era 0 enquanto a API estava exposta direto no NodePort
+            # (com 1, qualquer cliente de localhost:30080 forjaria o IP).
             - name: TRUST_PROXY_SALTOS
-              value: "0"
+              value: "1"
             - name: LIMITE_CADASTRO_POR_MIN
               value: "60"
             # Base do link do e-mail de confirmação (bloco 10). Valor no manifesto, e não no Secret: não é
             # segredo, e o Secret só é criado se ainda não existe (um cluster antigo nunca o receberia).
-            # ATENÇÃO: a 30080 hoje é a API, não o Portal. O link do e-mail dá 404 no kind até a Fase 6 do
-            # bloco 13 pôr o nginx do Portal na frente (docs/pendencias-bloco-7.md, K7).
+            # A 30080 é o Portal (70-web.yaml): o link abre /confirmar-email, que chama /api/auth/confirmar
+            # (N1 em docs/pendencias-bloco-7.md, fechada na Fase 6 do bloco 13).
             - name: PORTAL_URL
               value: "http://localhost:30080"
           readinessProbe:

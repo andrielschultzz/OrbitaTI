@@ -36,7 +36,7 @@ Legenda: ✅ feito, com evidência · ⏳ pendente (onde e quando está registra
 
 | # | Item | Estado | Evidência |
 |---|---|---|---|
-| 2.1 | Demonstração ao vivo: um tenant tenta ler, alterar e excluir o dado do outro | ✅ | [`scripts/demo-isolamento.ps1`](../scripts/demo-isolamento.ps1) (compose; no kind com `-BaseUrl http://localhost:30080`), com os tenants do `npm run seed` |
+| 2.1 | Demonstração ao vivo: um tenant tenta ler, alterar e excluir o dado do outro | ✅ | [`scripts/demo-isolamento.ps1`](../scripts/demo-isolamento.ps1) (compose; no kind, pelo Portal, com `-BaseUrl http://127.0.0.1:30080/api`), com os tenants do `npm run seed` |
 | 2.2 | 100% das tentativas cruzadas → 404, com o mesmo corpo de "não existe" (CQ-02) | ✅ | T-ISO-01 a T-ISO-05 e T-ISO-08 em [`tests/isolamento.test.js`](../tests/isolamento.test.js); CQ-02 em [`atributos.md`](atributos.md#cq-02) |
 | 2.3 | O 404 deixa rastro no log | ✅ | Evento `recurso_nao_encontrado` (T-ISO-19); `docker compose logs api-contatos \| Select-String recurso_nao_encontrado` |
 | 2.4 | Toda rota com dado de tenant está coberta pela suíte | ✅ | T-ISO-15 em [`tests/isolamento.test.js`](../tests/isolamento.test.js) |

@@ -27,7 +27,8 @@
 // Os nomes, empresas, estágios e dias são os mesmos do simulador (web/simulador/dados.js): a demo e as
 // capturas do Portal mostram os mesmos dados nos dois ambientes.
 //
-// Variável: SEED_URL (padrão http://localhost:3000). No kind: SEED_URL=http://localhost:30080 npm run seed
+// Variável: SEED_URL (padrão http://localhost:3000). No kind, pelo Portal (a API é ClusterIP):
+// SEED_URL=http://127.0.0.1:30080/api npm run seed  (o deploy-kind.ps1 já faz isso)
 //
 // --sem-mudancas (npm run seed -- --sem-mudancas): termina com código 1 se criar ou alterar QUALQUER coisa
 // (conta, contato, estágio ou interação). O CI roda o seed duas vezes no banco vazio; a segunda, com esta

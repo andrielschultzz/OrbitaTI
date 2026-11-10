@@ -1,0 +1,26 @@
+#!/bin/sh
+# Define API_RESOLVER: o DNS que o nginx consulta para achar a API (bloco 13, Fase 6).
+#
+# Por que existe: com "resolver" + upstream numa variável, o nginx resolve o nome da API de novo a cada
+# 10 s. Sem isso, ele resolve UMA vez na subida: se o contêiner/pod da API for recriado com outro IP, o
+# Portal responde 502 até alguém reiniciar o nginx; e se o nome não existir na subida, o nginx nem sobe.
+#
+# O DNS certo muda com o ambiente (compose: 127.0.0.11; kind: o kube-dns; docker run na rede padrão: o do
+# host). Todos estão no /etc/resolv.conf do contêiner, que o 15-local-resolvers.envsh da imagem oficial já
+# lê para NGINX_LOCAL_RESOLVERS (precisa de NGINX_ENTRYPOINT_LOCAL_RESOLVERS=1, definido no Dockerfile).
+# Aqui só damos o nome API_RESOLVER (passa no filtro ^API_ do envsubst) e deixamos sobrescrever.
+#
+# Arquivo .envsh: o entrypoint o executa com "." (no mesmo shell), então o export chega ao envsubst.
+# Precisa do bit de execução (COPY --chmod=755 no Dockerfile) e de fim de linha LF (.gitattributes).
+
+if [ -z "${API_RESOLVER:-}" ]; then
+  API_RESOLVER="${NGINX_LOCAL_RESOLVERS:-}"
+fi
+
+if [ -z "$API_RESOLVER" ]; then
+  echo "16-api-resolver: nenhum DNS em API_RESOLVER nem no /etc/resolv.conf; o nginx não subiria" >&2
+  exit 1
+fi
+
+export API_RESOLVER
+echo "16-api-resolver: API_RESOLVER=$API_RESOLVER"

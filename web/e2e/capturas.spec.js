@@ -35,9 +35,19 @@ let importacaoNova;
 let tokenNova;
 
 test.beforeAll(async ({ request }) => {
+  test.setTimeout(4 * 60_000); // cabe até 3 esperas de Retry-After
   tokenDemo = await entrarPelaApi(request, DEMO_EMAIL, DEMO_SENHA);
   // O contato com mais histórico, para a tela de detalhe mostrar a linha do tempo.
-  const { itens } = await (await request.get('/api/contatos', { headers: autorizacao(tokenDemo) })).json();
+  // Também respeita o Retry-After: numa execução logo depois de outra, a cota do minuto pode estar no fim.
+  let lista = await request.get('/api/contatos', { headers: autorizacao(tokenDemo) });
+  for (let espera = 1; lista.status() === 429 && espera <= MAX_TENTATIVAS_429; espera++) {
+    const segundos = Number(lista.headers()['retry-after']) || 5;
+    console.log(`beforeAll: 429 (rate limit do plano); esperando ${segundos} s`);
+    await new Promise((r) => setTimeout(r, (segundos + 1) * 1000));
+    lista = await request.get('/api/contatos', { headers: autorizacao(tokenDemo) });
+  }
+  expect(lista.status(), await lista.text()).toBe(200);
+  const { itens } = await lista.json();
   contatoDemo = itens.find((c) => c.ultima_interacao_em) ?? itens[0];
 
   tokenNova = await cadastrarPelaApi(request, { empresa: 'Capturas' });
@@ -59,20 +69,55 @@ const TELAS = [
   { nome: 'conta', caminho: '/conta', pronto: (p) => p.getByRole('button', { name: 'Exportar meus dados' }) },
 ];
 
+// Rate limit na stack real (Fase 6): a conta DevSolo é do plano Individual (60 req/min, um contador para a
+// empresa toda). contatos, contato e novo-contato fazem 2 chamadas contadas cada; × 8 capturas × 3 telas
+// + 1 do beforeAll = 49 por execução. Cabe, mas sem folga: rodar duas vezes seguidas (ou o Lighthouse logo
+// depois) estoura. Em vez de subir o limite, a captura que receber 429 espera o Retry-After e é refeita.
+// Nenhuma captura é salva a partir de uma tela que recebeu 429 (a asserção abaixo garante).
+const MAX_TENTATIVAS_429 = 3;
+
+async function abrirTela(page, tela, caminho) {
+  for (let tentativa = 1; ; tentativa++) {
+    const respostas429 = [];
+    let avisar429;
+    const chegou429 = new Promise((resolver) => (avisar429 = resolver));
+    const vigia = (r) => {
+      if (r.status() === 429) {
+        respostas429.push(r);
+        avisar429();
+      }
+    };
+    page.on('response', vigia);
+    if (tela.publica) await page.goto(caminho);
+    else await abrirComToken(page, tela.nova ? tokenNova : tokenDemo, caminho);
+    const pronto = tela.titulo ? page.getByRole('heading', { name: tela.titulo(), exact: true }) : tela.pronto(page);
+    // Corrida: a tela fica pronta OU chega um 429 (a tela de erro varia: toast, alerta, texto).
+    const visivel = expect(pronto).toBeVisible({ timeout: 30_000 }).then(() => null, (erro) => erro);
+    const erro = await Promise.race([visivel, chegou429.then(() => null)]);
+    if (respostas429.length === 0) {
+      if (erro) throw erro;
+      await page.evaluate(() => document.fonts.ready);
+      await page.waitForLoadState('networkidle');
+    }
+    page.off('response', vigia);
+
+    if (respostas429.length === 0) return;
+    expect(tentativa, `429 em ${caminho} mesmo depois de ${MAX_TENTATIVAS_429} esperas`).toBeLessThan(MAX_TENTATIVAS_429);
+    const segundos = Math.max(...respostas429.map((r) => Number(r.headers()['retry-after']) || 5));
+    console.log(`captura ${caminho}: 429 (rate limit do plano); esperando ${segundos} s e refazendo`);
+    await page.waitForTimeout((segundos + 1) * 1000);
+  }
+}
+
 for (const tela of TELAS) {
   test(`captura: ${tela.nome}`, async ({ page }) => {
+    test.setTimeout(5 * 60_000); // cabe até 3 esperas de Retry-After (≤ 60 s cada)
     const caminho = typeof tela.caminho === 'function' ? tela.caminho() : tela.caminho;
     for (const tema of TEMAS) {
       await page.emulateMedia({ colorScheme: tema === 'claro' ? 'light' : 'dark' });
       for (const largura of LARGURAS) {
         await page.setViewportSize({ width: largura, height: largura < 768 ? 812 : 900 });
-        if (tela.publica) await page.goto(caminho);
-        else await abrirComToken(page, tela.nova ? tokenNova : tokenDemo, caminho);
-
-        const pronto = tela.titulo ? page.getByRole('heading', { name: tela.titulo(), exact: true }) : tela.pronto(page);
-        await expect(pronto).toBeVisible({ timeout: 30_000 });
-        await page.evaluate(() => document.fonts.ready);
-        await page.waitForLoadState('networkidle');
+        await abrirTela(page, tela, caminho);
 
         const arquivo = `e2e/capturas/${tela.nome}-${largura}-${tema}.png`;
         await page.screenshot({ path: arquivo, fullPage: true });

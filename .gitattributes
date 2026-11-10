@@ -3,3 +3,4 @@
 *.sql text eol=lf
 *.conf text eol=lf
 *.template text eol=lf
+*.envsh text eol=lf

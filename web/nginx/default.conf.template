@@ -17,8 +17,31 @@ map $http_x_request_id $id_requisicao {
 # de confirmação (/confirmar-email e /api/auth/confirmar, 24 h) e do de exportação (bloco 14, 30 dias):
 # quem lesse o log teria credenciais válidas. $uri é só o caminho. O id de correlação entra no fim para
 # cruzar com o log da API.
-log_format orbitati '$remote_addr [$time_local] "$request_method $uri $server_protocol" $status '
-                    '$body_bytes_sent $request_time "$http_user_agent" $id_requisicao';
+#
+# upstream=<endereço> <status>: para quem a requisição foi e o que a API respondeu ("-" se não passou pela
+# API). É o diagnóstico de um 502/504 agora que o error_log só registra "crit" (N5, abaixo).
+#
+# $caminho e não $uri: o rewrite do /api/ (abaixo) muda o $uri para "/saude", e o log perderia o "/api".
+# $caminho é o $request_uri (o que o cliente pediu) cortado no "?", então continua sem a query string.
+map $request_uri $caminho {
+    "~^(?<sem_query>[^?]*)" $sem_query;
+    default                 $request_uri;
+}
+log_format orbitati '$remote_addr [$time_local] "$request_method $caminho $server_protocol" $status '
+                    '$body_bytes_sent $request_time "$http_user_agent" $id_requisicao '
+                    'upstream=$upstream_addr $upstream_status';
+
+# N5 (docs/pendencias-bloco-7.md): o error_log não tem formato configurável e, num erro de upstream (API
+# fora, nome que não resolve), grava a linha da requisição COM a query string, e com ela o ?token= do link
+# de confirmação (24 h) ou de exportação. Em "crit" esses erros (nível "error") não são gravados. O
+# diagnóstico de um 502 vem do access_log (status + upstream acima) e do log da API, pelo id de correlação.
+error_log /dev/stderr crit;
+
+# DNS para achar a API, resolvido de novo a cada 10 s (API_RESOLVER: ver 16-api-resolver.envsh).
+# ipv6=off: a rede do compose e a do kind são IPv4; sem isso o nginx também pede AAAA e pode tentar um
+# endereço que não responde.
+resolver ${API_RESOLVER} valid=10s ipv6=off;
+resolver_timeout 3s;
 
 gzip on;
 gzip_comp_level 5;
@@ -56,9 +79,17 @@ server {
         return 404 '{"erro":"Recurso não encontrado.","codigo":"NAO_ENCONTRADO"}';
     }
 
-    # Proxy da API: /api/contatos -> http://API_UPSTREAM/contatos (a barra final do proxy_pass tira o /api).
+    # Proxy da API: /api/contatos?q=x -> http://API_UPSTREAM/contatos?q=x.
+    # O upstream fica numa VARIÁVEL para o nginx usar o "resolver" acima (nome resolvido de novo a cada
+    # 10 s; sem variável, ele resolveria uma vez só, na subida). Efeito colateral: com variável, um
+    # "proxy_pass http://$x/" deixaria de trocar só o prefixo e mandaria "/" para TODA requisição. Por isso
+    # o /api sai no rewrite (a query string segue sozinha) e o proxy_pass fica sem caminho.
+    # No kind, API_UPSTREAM precisa do nome completo (api-contatos.orbitati.svc.cluster.local:3000): o
+    # resolver do nginx não usa o "search" do /etc/resolv.conf.
     location /api/ {
-        proxy_pass http://${API_UPSTREAM}/;
+        set $api_upstream ${API_UPSTREAM};
+        rewrite ^/api/(.*)$ /$1 break;
+        proxy_pass http://$api_upstream;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         # A API usa o X-Forwarded-For via trustProxy (TRUST_PROXY_SALTOS, bloco 5). Sem isso, os rate
