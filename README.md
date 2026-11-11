@@ -48,9 +48,21 @@ Checklist completo, item a item, em [`docs/etapa-2.md`](docs/etapa-2.md).
 | Um serviço cai e o resto segue | [`scripts/demo-degradacao.ps1`](scripts/demo-degradacao.ps1) (T-RES-01 a 07) |
 | Importação idempotente | [`tests/idempotencia.test.js`](tests/idempotencia.test.js) e [`scripts/ensaio-reprocessamento.ps1`](scripts/ensaio-reprocessamento.ps1) (T-IMP-14) |
 | Limites por plano e rate limit por tenant | [`services/api-contatos/src/planos.js`](services/api-contatos/src/planos.js) e [`tests/rate-limit.test.js`](tests/rate-limit.test.js) |
-| Rastreio de requisição entre os serviços | [`tests/observabilidade.test.js`](tests/observabilidade.test.js) (`x-request-id` atravessa a fila) |
+| Rastreio de requisição entre os serviços | [`tests/observabilidade.test.js`](tests/observabilidade.test.js) ~~(`x-request-id` atravessa a fila)~~ prova o T-OBS-01 (`x-request-id` aceito ou gerado). Que o id **atravessa a fila** (T-OBS-02) é um ensaio com os logs do compose, registrado no [plano de testes](docs/plano-de-testes.md) (correção de 10/11/2026) |
 | Deploy em Kubernetes | [`deploy/k8s/`](deploy/k8s/) e [`scripts/deploy-kind.ps1`](scripts/deploy-kind.ps1) |
 | Arquitetura atualizada | [Estado na Etapa 2](docs/02-arquitetura-c4.md#estado-na-etapa-2) no C4 |
+
+## Onde está cada evidência por etapa
+
+| Etapa | Checklist | Relatórios e provas |
+|---|---|---|
+| 1 — Proposta de arquitetura | tabela "Etapa 1" acima | [`docs/`](docs/) (visão, C4, ADRs, atributos, LGPD) |
+| 2 — Núcleo multi-tenant | [`docs/etapa-2.md`](docs/etapa-2.md) | [`tests/`](tests/), [`scripts/demo-isolamento.ps1`](scripts/demo-isolamento.ps1), [`scripts/demo-degradacao.ps1`](scripts/demo-degradacao.ps1) |
+| 3 — Qualidade e testes | [`docs/etapa-3.md`](docs/etapa-3.md) | [`docs/plano-de-testes.md`](docs/plano-de-testes.md) e [`docs/ensaios/`](docs/ensaios/): [CQ-01](docs/ensaios/cq01-2026-11-08.md), [CQ-03](docs/ensaios/cq03-2026-11-08.md), [CQ-04](docs/ensaios/cq04-2026-11-09.md), [T-CQ04-02](docs/ensaios/cq04-02-web-2026-11-09.md), [CQ-05](docs/ensaios/cq05-2026-11-08.md); resultado de cada cenário em [`docs/atributos.md`](docs/atributos.md) |
+| 4 — Produto integrado e defesa | [`docs/etapa-4.md`](docs/etapa-4.md) | Portal ([seção Portal Web](#portal-web)), LGPD ([seção LGPD](#lgpd)), [Lighthouse](docs/ensaios/portal-lighthouse-2026-11-09.md), [`docs/dpa-esboco.md`](docs/dpa-esboco.md) |
+
+Para a defesa: roteiro em [`docs/roteiro-defesa.md`](docs/roteiro-defesa.md) e registro do uso de IA no projeto
+em [`docs/uso-de-ia.md`](docs/uso-de-ia.md).
 
 ## Números de referência do produto
 
@@ -83,7 +95,9 @@ tenants com e-mails únicos.
 **O check vermelho só bloqueia o merge com a regra do repositório.** O workflow apenas marca o commit
 como falho. Para impedir o merge no `main`: GitHub → Settings → Branches → Add branch protection rule
 (ou Rules → Rulesets) para `main` → "Require status checks to pass before merging" → marcar os checks
-**`api`** e **`web`**. Sem essa regra, o vermelho avisa mas não impede.
+**`api`** e **`web`**. Sem essa regra, o vermelho avisa mas não impede. **Neste repositório a regra está
+ativa desde 08/11/2026** (ruleset do `main` com os checks `api` e `web` obrigatórios e PR obrigatório; testada
+no PR #12), conforme o [plano de testes](docs/plano-de-testes.md), seção 1.
 
 ## Estrutura do repositório
 
@@ -100,19 +114,37 @@ docs/
 │   ├── adr-003-processamento-assincrono.md
 │   └── adr-004-comunicacao-entre-servicos.md
 ├── etapa-2.md                   # checklist da Etapa 2 x evidência no repositório
+├── etapa-3.md, etapa-4.md       # checklists das Etapas 3 e 4 (Bloco 15)
+├── roteiro-defesa.md            # roteiro da defesa (Bloco 15)
+├── uso-de-ia.md                 # como a IA foi usada no projeto (Bloco 15)
 ├── contrato-api.md              # contrato HTTP entre Portal e API
+├── dpa-esboco.md                # esboço do contrato de operador (LGPD, bloco 14)
 ├── plano-de-testes.md           # casos T-xxx, rastreabilidade e lacunas
 ├── pendencias-bloco-7.md        # histórico das decisões dos blocos 0 a 6 e onde cada uma foi parar
-├── portal-pendencias.md         # resultado da Fase 6 e o que falta para a VM
-├── ensaios/                     # relatórios de ensaios (ex.: Lighthouse do Portal)
+├── portal-pendencias.md         # resultado da Fase 6 e o que falta para a VM (VM: fora do escopo, D-15.1)
+├── ensaios/                     # relatórios datados: CQ-01, CQ-03, CQ-04 e T-CQ04-02, CQ-05, Lighthouse
 └── atividades/
     └── enc06-andriel.md         # atividade dirigida do Encontro 06
-services/api-contatos/           # API (Fastify 5): auth, contatos, importações, /planos, rotas /interno
-services/importacao/             # worker BullMQ: lê o CSV do job, valida, envia lotes à API
+docker-compose.yml               # stack local: postgres, redis, migrate, api-contatos, importacao, mailpit, notificacoes, web (+ k6, profile carga)
+docker-compose.carga.yml         # override só do ensaio do CQ-01: postgres com 1 vCPU e 2 GB
+services/api-contatos/           # API (Fastify 5): auth, contatos, importações, /planos, rotas /interno, /conta (LGPD)
+├── src/exclusao.js              # job diário de exclusão LGPD (agendador BullMQ, 3 h)
+├── src/excluir-agora.js         # a mesma exclusão, uma vez, à mão
+└── test/                        # unitários sem stack
+services/importacao/             # worker BullMQ: lê o CSV do job, valida, envia lotes à API; apaga o schema importacao de tenant excluído
+services/notificacoes/           # worker BullMQ da fila "emails": envia o e-mail por SMTP (Mailpit local)
 db/                              # papéis (init/), migrações SQL e a imagem orbitati/migrate
-deploy/k8s/                      # manifests do kind (namespace orbitati)
+deploy/k8s/                      # manifests do kind (namespace orbitati); 70-web.yaml = Portal na NodePort 30080
 scripts/                         # seed, deploy no kind, demos de isolamento e de degradação, ensaio T-IMP-14
+├── medir-cq01.ps1               # CQ-01 com e sem a mitigação (bloco 9)
+├── backup.ps1                   # CQ-05: pg_dump + foto da origem em backups/ (fora do git)
+├── ensaio-restauracao.ps1       # CQ-05: restaura num postgres-ensaio separado, verifica e remove
+├── restaurar-um-tenant.ps1      # CQ-05: CSVs de um tenant no formato da importação
+├── sonda.ps1                    # CQ-04: sonda de disponibilidade
+├── lib-ensaio.ps1               # funções comuns dos scripts do bloco 11
+└── sql/                         # consultas que esses scripts rodam
 tests/                           # testes de integração, contra a stack no ar; apoio/ = funções comuns
+└── carga/                       # k6 do CQ-01: cq01.js, janelas.js (+ teste) e resultados/
 web/                             # Portal Web (SPA React + nginx), pacote independente
 ├── src/                         # telas, cliente HTTP, sessão, design system em código
 ├── simulador/                   # simulador do contrato (o Portal roda sem a API)
@@ -153,12 +185,14 @@ O `.env` fica fora do git. O `.env.example` mostra as variáveis com valores fal
 ### 2. Subir a stack (Docker Compose)
 
 ```
-docker compose up -d --build --wait       # postgres, redis, migrate, api-contatos e importacao, todos prontos
+docker compose up -d --build --wait       # postgres, redis, migrate, api-contatos, importacao, mailpit, notificacoes e web, todos prontos
 curl.exe -s http://localhost:3000/saude   # {"db":"ok","fila":"ok"}
 ```
 
-A API fica em http://localhost:3000. O Serviço de Importação não publica porta: ele só fala com o Redis, o
-banco e a API.
+A API fica em http://localhost:3000 e o Portal em http://localhost:8080. Os serviços de Importação e de
+Notificações não publicam porta: falam só com o Redis, o banco, a API e (Notificações) o SMTP do Mailpit. Os
+e-mails enviados (confirmação de cadastro, link de exportação) aparecem na caixa do **Mailpit**, em
+http://127.0.0.1:8025 (publicada só em `127.0.0.1`; o SMTP não é publicado).
 
 ### 3. Dados de demonstração
 
@@ -231,7 +265,7 @@ preciso ser administrador.
 ### 7. Logs e reset
 
 ```
-docker compose logs -f api-contatos importacao   # todo log tem reqId e tenant_id
+docker compose logs -f api-contatos importacao notificacoes web   # todo log da API e dos workers tem reqId e tenant_id
 docker compose run --rm migrate                  # aplica só as migrações pendentes
 docker compose down -v                           # derruba e APAGA os dados (reset total)
 ```
@@ -252,7 +286,9 @@ sucesso; se uma migração falhar, o `up` sai com erro e a API nem inicia. Cada 
 o que é seguro porque ele é idempotente.
 
 **Portas.** O Postgres (`5432`) e a API (`3000`) ficam publicados só em `127.0.0.1`: os testes rodam no
-host e precisam deles, mas ninguém da rede alcança as portas. Na VM, só o Portal fica exposto. O Redis e o
+host e precisam deles, mas ninguém da rede alcança as portas. ~~Na VM, só o Portal fica exposto.~~ (10/11/2026:
+publicar numa VM ficou **fora do escopo (D-15.1)**, a apresentação roda localmente; o desenho continua o mesmo:
+só o Portal seria exposto.) O Redis e o
 Serviço de Importação não são publicados. Se o `up` falhar com `port is already allocated`, outro programa
 ou contêiner está usando a porta (`docker ps` mostra qual).
 
@@ -285,7 +321,10 @@ ambiente local a pasta é montada no contêiner, então uma migração nova vale
 
 > **Estado em 09/11/2026:** o Portal está ligado na API real (bloco 13, Fase 6): serviço `web` no compose
 > (http://localhost:8080) e no kind (http://localhost:30080). O simulador do contrato (`web/simulador/`)
-> continua para desenvolver sem a stack. O que falta para a VM: [`docs/portal-pendencias.md`](docs/portal-pendencias.md).
+> continua para desenvolver sem a stack. ~~O que falta para a VM: [`docs/portal-pendencias.md`](docs/portal-pendencias.md).~~
+> **10/11/2026 (Bloco 15):** a apresentação roda localmente; publicar numa VM ficou **fora do escopo (D-15.1)**,
+> registrada em [`docs/pendencias-bloco-7.md`](docs/pendencias-bloco-7.md). A lista da VM continua em
+> [`docs/portal-pendencias.md`](docs/portal-pendencias.md) só como registro.
 
 Requisitos: Node.js 22 ou mais novo e Docker Desktop. Todos os comandos rodam dentro de `web/`:
 
@@ -350,6 +389,28 @@ compose; no kind, `$env:E2E_URL="http://localhost:30080"`). As capturas e o Ligh
 DevSolo; na stack real, rode o seed antes. O Lighthouse precisa rodar pelo PowerShell: pelo Git Bash o
 Chromium não abre (`spawn UNKNOWN`). Último Lighthouse, contra a API real:
 [`docs/ensaios/portal-lighthouse-2026-11-09.md`](docs/ensaios/portal-lighthouse-2026-11-09.md).
+
+<a id="lgpd"></a>
+## LGPD — exportação, cancelamento e exclusão (bloco 14)
+
+O OrbitaTI é **operador** dos dados dos contatos ([`docs/lgpd.md`](docs/lgpd.md)); o esboço do contrato de
+operador está em [`docs/dpa-esboco.md`](docs/dpa-esboco.md). O que o cliente (o admin do tenant) pode fazer:
+
+| O quê | Como | Detalhe |
+|---|---|---|
+| Exportar os dados da empresa | `GET /conta/exportacao` (tela Conta do Portal) | Só o admin; JSON sem `senha_hash`, só do próprio tenant (T-ISO-18) |
+| Cancelar a conta | `POST /conta/cancelamento` (tela Conta, confirmando com `CANCELAR`) | O login passa a ser recusado e chega um e-mail com o link de exportação, válido até `cancelado_em + 30 dias` (no compose, o e-mail aparece no Mailpit) |
+| Exclusão definitiva | Job diário às 3 h (`src/exclusao.js`) | Apaga os tenants cancelados há **mais de 30 dias**, nos schemas `orbita` (pela API) e `importacao` (pelo worker, via fila `exclusao-importacao`) |
+
+Para a demonstração, sem esperar as 3 h (só apaga quem foi cancelado há mais de 30 dias):
+
+```
+docker compose exec api-contatos node src/excluir-agora.js
+kubectl -n orbitati exec deploy/api-contatos -- node src/excluir-agora.js   # no kind
+```
+
+Testes: T-LGPD-01 a 05, T-ISO-18 e T-RLS-21 em [`tests/lgpd.test.js`](tests/lgpd.test.js) e
+[`tests/rls.test.js`](tests/rls.test.js); pela tela, [`web/e2e/conta.spec.js`](web/e2e/conta.spec.js).
 
 ## Calendário do Projeto Integrador
 

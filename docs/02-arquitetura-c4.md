@@ -3,7 +3,7 @@
 **Unidade:** Andriel Schultz e Cristofer Mateus Rutzen
 **Etapa 1 — Proposta de arquitetura**
 
-Este documento apresenta os níveis 1 e 2 completos e um esboço do nível 3, como propostos na Etapa 1. O que foi de fato construído está em [Estado na Etapa 2](#estado-na-etapa-2). O modelo de tenancy que fundamenta os limites desenhados aqui está em [`adr/adr-001-tenancy.md`](adr/adr-001-tenancy.md).
+Este documento apresenta os níveis 1 e 2 completos e um esboço do nível 3, como propostos na Etapa 1. O que foi de fato construído está em [Estado na Etapa 2](#estado-na-etapa-2), e o fechamento do semestre em [Estado final](#estado-final). O modelo de tenancy que fundamenta os limites desenhados aqui está em [`adr/adr-001-tenancy.md`](adr/adr-001-tenancy.md).
 
 ---
 
@@ -17,7 +17,7 @@ O OrbitaTI adota **pool**: todos os tenants compartilham as mesmas tabelas, sepa
 |---|---|---|---|
 | **1. Token** | API REST — middleware de autenticação | Extrai o `tenant_id` do JWT assinado e o injeta no contexto da requisição. O cliente nunca envia `tenant_id` como parâmetro | Requisição rejeitada com 401 antes de tocar em qualquer dado |
 | **2. Sessão de banco** | API REST — camada de acesso a dados | Abre a transação com `withTenant` e executa `SELECT set_config('app.tenant_id', $1, true)`, a partir do contexto. O `true` faz o valor morrer no fim da transação, como um `SET LOCAL`, mas aceita parâmetro (o `SET LOCAL` obrigaria concatenar texto, ver [ADR-001](adr/adr-001-tenancy.md)) | A query roda sem tenant definido e a política de RLS não devolve nenhuma linha, sem erro |
-| **3. Row-Level Security** | PostgreSQL | Política `tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid` (`USING` e `WITH CHECK`), com `ENABLE` + `FORCE`, em toda tabela com dado de tenant. O `NULLIF` faz uma sessão sem tenant ver 0 linhas em vez de dar erro | Nada passa. É a rede de segurança: mesmo um `SELECT * FROM contatos` sem `WHERE` só enxerga o tenant da sessão |
+| **3. Row-Level Security** | PostgreSQL | Política `tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid` (`USING` e `WITH CHECK`), com `ENABLE` + `FORCE`, em toda tabela com dado de tenant. Em `orbita.tenants` a política compara o próprio **`id`** (`id = NULLIF(...)::uuid`), porque a tabela não tem coluna `tenant_id` (`db/migrations/001_base.sql`; corrigido em 10/11/2026). O `NULLIF` faz uma sessão sem tenant ver 0 linhas em vez de dar erro | Nada passa. É a rede de segurança: mesmo um `SELECT * FROM contatos` sem `WHERE` só enxerga o tenant da sessão |
 
 A camada 3 existe porque as camadas 1 e 2 dependem de o desenvolvedor não errar. O RLS é a única que não depende — e por isso é ela, e não a disciplina do time, que sustenta a promessa de isolamento no cenário CQ-02 de [`atributos.md`](atributos.md).
 
@@ -74,8 +74,9 @@ Três pontos mudaram na Etapa 2 ([ADR-004](adr/adr-004-comunicacao-entre-servico
 
 - o Worker de Importação não grava no banco: chama a API;
 - o CSV vai no payload do job, sem armazenamento S3;
-- o Gerador de Documentos não foi construído. O Serviço de Notificações entrou no bloco 10 (08/11/2026), só com
-  o e-mail de confirmação de cadastro e o Mailpit no lugar do provedor real.
+- o Gerador de Documentos não foi construído. O Serviço de Notificações entrou no bloco 10 (08/11/2026), ~~só com
+  o e-mail de confirmação de cadastro~~ com o e-mail de confirmação de cadastro (e, desde o bloco 14, o do link
+  de exportação), e o Mailpit no lugar do provedor real (provedor real: fora do escopo, D-15.1).
 
 O desenho atual está em [Estado na Etapa 2](#estado-na-etapa-2).
 
@@ -217,7 +218,8 @@ Os dois componentes em laranja são os que sustentam o isolamento. O **Resolvedo
 <a id="estado-na-etapa-2"></a>
 ## Estado na Etapa 2
 
-> Atualizado em 08/11/2026 (Bloco 7) e em 09/11/2026 (bloco 13, Fase 6: Portal ligado na API real). Os
+> Atualizado em 08/11/2026 (Bloco 7), em 09/11/2026 (bloco 13, Fase 6: Portal ligado na API real) e em
+> 10/11/2026 (Bloco 15: diagrama com as 4 filas, a exclusão LGPD do bloco 14 e as interações do bloco 12). Os
 > diagramas acima são a **proposta** da Etapa 1 e ficam como registro. Esta seção mostra o que existe em
 > código e o que ficou para depois.
 
@@ -230,22 +232,22 @@ flowchart TB
     subgraph sistema["OrbitaTI — Etapa 2 (compose e kind)"]
         portal["<b>Portal Web</b><br/><i>[nginx + SPA React]</i><br/>Única porta exposta.<br/>Proxy de /api para a API.<br/>2 réplicas no kind"]
 
-        api["<b>API de Contatos</b><br/><i>[Node.js 22 + Fastify 5]</i><br/>Auth, contatos, importações,<br/>rate limit, rotas /interno.<br/><b>tenant_id só do JWT</b><br/>2 réplicas no kind"]
+        api["<b>API de Contatos</b><br/><i>[Node.js 22 + Fastify 5]</i><br/>Auth, contatos, interações, importações,<br/>/conta (exportação, cancelamento),<br/>rate limit, rotas /interno,<br/>job diário de exclusão LGPD.<br/><b>tenant_id só do JWT</b><br/>2 réplicas no kind"]
 
-        redis[["<b>Fila e contadores</b><br/><i>[Redis 7 + BullMQ]</i><br/>Filas importacoes e emails,<br/>rate limit.<br/>Sem persistência"]]
+        redis[["<b>Fila e contadores</b><br/><i>[Redis 7 + BullMQ]</i><br/>Filas importacoes, emails,<br/>exclusao-importacao e exclusao-tenants;<br/>rate limit.<br/>Sem persistência"]]
 
-        worker["<b>Serviço de Importação</b><br/><i>[Node.js 22 + BullMQ]</i><br/>Valida o CSV, lotes de 100,<br/>pausa de 500 ms,<br/>concurrency: 2"]
+        worker["<b>Serviço de Importação</b><br/><i>[Node.js 22 + BullMQ]</i><br/>Valida o CSV, lotes de 100,<br/>pausa de 500 ms,<br/>concurrency: 2.<br/>Apaga o schema importacao<br/>de um tenant excluído"]
 
         subgraph pg["PostgreSQL 16 — pool + RLS em toda tabela"]
-            orbita[("<b>schema orbita</b><br/>tenants, usuarios, contatos,<br/>importacoes, lotes_aplicados<br/>papel: api_contatos")]
+            orbita[("<b>schema orbita</b><br/>tenants, usuarios, contatos,<br/>interacoes, importacoes,<br/>lotes_aplicados<br/>papel: api_contatos")]
             imp[("<b>schema importacao</b><br/>execucoes, erros_linha<br/>papel: importacao_svc")]
         end
 
         migrate["<b>migrate</b><br/><i>[job]</i><br/>Migrações SQL<br/>papel: migrador"]
 
-        notif["<b>Serviço de Notificações</b><br/><i>[Node.js 22 + BullMQ + nodemailer]</i><br/>E-mail de confirmação.<br/><b>Sem banco</b>"]
+        notif["<b>Serviço de Notificações</b><br/><i>[Node.js 22 + BullMQ + nodemailer]</i><br/>E-mails de confirmação de cadastro<br/>e de link de exportação.<br/><b>Sem banco</b>"]
 
-        mailpit["<b>Mailpit</b><br/><i>[SMTP de teste]</i><br/>No lugar do provedor real"]
+        mailpit["<b>Mailpit</b><br/><i>[SMTP de teste]</i><br/>No lugar do provedor real<br/>(provedor real: fora do escopo, D-15.1)"]
     end
 
     subgraph naofeito["Não construído na Etapa 2"]
@@ -253,7 +255,7 @@ flowchart TB
         blob[("<b>Armazenamento S3</b><br/>adiado, ver ADR-004")]
     end
 
-    user -->|"HTTPS"| portal
+    user -->|"HTTP local (8080 / 30080)<br/>HTTPS: fora do escopo, D-15.1"| portal
     portal -->|"/api, JSON + Bearer JWT<br/>X-Forwarded-For, X-Request-Id"| api
     api -->|"SQL em withTenant<br/><b>set_config app.tenant_id</b>"| orbita
     api -->|"① add job: tenant_id + CSV até 1 MB<br/>jobId = importacao_id"| redis
@@ -263,9 +265,14 @@ flowchart TB
     worker -->|"SQL com tenant fixado<br/>execuções e erros de linha"| imp
     migrate -->|"DDL, RLS e GRANTs"| orbita
     migrate -->|"DDL, RLS e GRANTs"| imp
-    api -->|"④ depois do COMMIT do cadastro<br/>jobId = confirmar-cadastro-usuario_id"| redis
+    api -->|"④ e-mail: depois do COMMIT do cadastro<br/>ou dentro da transação do cancelamento"| redis
     redis -->|"⑤ entrega o job"| notif
     notif -->|"⑥ SMTP"| mailpit
+    api -->|"⑦ agendador exclusao-diaria, 3 h<br/>fila exclusao-tenants"| redis
+    redis -->|"⑧ job diário: a própria API consome<br/>tenants_para_excluir"| api
+    api -->|"⑨ antes de apagar orbita: exclusao-importacao<br/>jobId = excluir-tenant_id"| redis
+    redis -->|"⑩ entrega o pedido"| worker
+    worker -->|"⑪ apaga execucoes e erros_linha<br/>do tenant excluído"| imp
 
     classDef pessoa fill:#0b4f6c,stroke:#08313f,color:#fff
     classDef container fill:#1c7c54,stroke:#0f4a31,color:#fff
@@ -285,9 +292,19 @@ flowchart TB
   `importacao`, `notificacoes` e `mailpit` (os dois últimos desde o bloco 10) e `web` (o Portal, bloco 13). No
   kind, os mesmos, com a API e o `web` em 2 réplicas (`deploy/k8s/`). Só o `web` fica exposto: a 8080 no compose
   e a NodePort 30080 no kind. A API é ClusterIP no kind; no compose, a 3000 só existe em `127.0.0.1` (testes).
-- **As setas ④ a ⑥ são o e-mail de confirmação (bloco 10).** O job leva tudo o que o e-mail precisa (destinatário,
-  nome e link), então o Serviço de Notificações não tem banco nem papel no Postgres. Fila fora não impede o
-  cadastro (T-RES-06).
+  *(Corrigido em 10/11/2026:)* o compose publica em `127.0.0.1` também a **5432** (Postgres: os testes rodam no host e
+  precisam do banco) e a **8025** (interface e API do Mailpit, que os testes leem; o SMTP 1025 não é publicado). Por estarem só no loopback, ninguém de fora da máquina
+  as alcança; a única porta em todas as interfaces é a do `web` (`WEB_PORTA`, padrão 8080).
+- **As setas ④ a ⑥ são os e-mails (bloco 10 e bloco 14).** O job leva tudo o que o e-mail precisa (destinatário,
+  nome e link), então o Serviço de Notificações não tem banco nem papel no Postgres. São dois tipos:
+  `confirmar-cadastro`, enfileirado depois do COMMIT (fila fora não impede o cadastro, T-RES-06), e
+  `exportacao-disponivel`, enfileirado **dentro** da transação do cancelamento (fila fora → 503 e nada muda,
+  porque sem o e-mail o cliente perderia o link de 30 dias; ver [ADR-004](adr/adr-004-comunicacao-entre-servicos.md)).
+- **As setas ⑦ a ⑪ são a exclusão LGPD (bloco 14).** Um agendador BullMQ com id fixo (`exclusao-diaria`) põe
+  um job por dia na fila `exclusao-tenants`, e quem consome é **a própria API** (`src/exclusao.js`): ela pergunta
+  ao banco quais tenants venceram (`orbita.tenants_para_excluir()`, só ids), **primeiro** pede ao worker de
+  importação que apague o schema `importacao` daquele tenant (fila `exclusao-importacao`) e **só depois** apaga
+  `orbita` com `withTenant`. Assim cada serviço continua apagando só o próprio schema.
 - **Em cinza tracejado, o que não foi construído.**
 - **A seta ③ é a principal mudança em relação à proposta.** O Serviço de Importação não grava contatos no
   banco: chama a API. O papel `importacao_svc` não tem nenhum GRANT no schema `orbita` (T-RLS-07). Cada serviço
@@ -313,7 +330,8 @@ flowchart TB
 | Middleware de Autenticação + Resolvedor de Tenant | `services/api-contatos/src/autenticacao.js` (dois segredos: usuário e serviço) |
 | Guarda de Quotas | `limite.js` (rate limit) e a contagem de importações simultâneas em `rotas/importacoes.js` |
 | Avaliador de Feature Flags | `planos.js`: os limites de cada plano, expostos em `GET /planos` |
-| Controlador de Contatos | `rotas/contatos.js`, `rotas/importacoes.js` e `rotas/interno.js` |
+| Controlador de Contatos | `rotas/contatos.js`, `rotas/interacoes.js` (bloco 12), `rotas/importacoes.js` e `rotas/interno.js` |
+| *(novo, bloco 14)* Conta e LGPD | `rotas/conta.js` (exportação, cancelamento, link de exportação) e `exclusao.js` (job diário de exclusão) |
 | Camada de Acesso a Dados | `db.js` (`withTenant`) |
 | Controladores de Oportunidades e de Configuração | Não construídos (fora do escopo do semestre) |
 
@@ -352,10 +370,30 @@ flowchart LR
 - **O limite de tenant no Portal** segue a tabela "Containers em detalhe": o JWT fica no
   `sessionStorage` da aba e o tenant nunca aparece em URL, query ou corpo. O cliente HTTP trava isso em
   desenvolvimento, e o teste T-WEB-01 confere no fluxo inteiro.
-- **Ligado à API real desde 09/11/2026** (Fase 6 do bloco 13): os mesmos 33 E2E passam contra o simulador e
-  contra a API (compose e kind), o que mostra que os dois cumprem o mesmo contrato. O simulador
+- **Ligado à API real desde 09/11/2026** (Fase 6 do bloco 13): ~~os mesmos 33 E2E passam~~ 33/33 E2E passaram
+  na Fase 6 (09/11), sem divergência, contra o simulador e contra a API (compose e kind), o que mostra que os
+  dois cumprem o mesmo contrato. O bloco 14 levou a suíte a 35 e o Bloco 15 (B12) a 36, sem contar as capturas. O simulador
   (`web/simulador/`) continua para o modo dev e para o job `web` do CI. No kind, o `TRUST_PROXY_SALTOS` passou
   de 0 para 1 ([ADR-004](adr/adr-004-comunicacao-entre-servicos.md), "Borda: Nginx → API").
+
+---
+
+<a id="estado-final"></a>
+## Estado final (Etapa 4, 10/11/2026)
+
+O diagrama de [Estado na Etapa 2](#estado-na-etapa-2) já é o estado final: 8 contêineres, 4 filas no mesmo
+Redis (`importacoes`, `emails`, `exclusao-importacao` e `exclusao-tenants`) e duas funções que contornam o
+RLS, as duas do `orbita_auth` ([ADR-001](adr/adr-001-tenancy.md), nota de 10/11).
+
+**Decisão D-15.1: a apresentação roda localmente** (compose e kind no notebook); **publicar numa VM ficou fora
+do escopo.** Registro e porquê em [`pendencias-bloco-7.md`](pendencias-bloco-7.md) (D-15.1). O que dependia da
+VM fica no desenho, marcado, e não foi apagado:
+
+| Item do desenho | Estado |
+|---|---|
+| HTTPS na borda (seta "HTTPS" dos níveis 1 e 2) | **Fora do escopo (D-15.1).** Local é HTTP em `localhost:8080` (compose) e `localhost:30080` (kind) |
+| Provedor de e-mail real (SMTP com TLS e autenticação, SPF/DKIM, N4) | **Fora do escopo (D-15.1).** O Mailpit fica no lugar, no compose e no kind |
+| Gerador de Documentos, armazenamento S3, webhook para o sistema do tenant | Fora do escopo do semestre (já registrado antes) |
 
 ---
 

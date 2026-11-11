@@ -342,7 +342,11 @@ export function buildSimulador({
           type: 'object',
           additionalProperties: false,
           required: ['email', 'senha'],
-          properties: { email: { type: 'string', maxLength: 254 }, senha: { type: 'string', maxLength: 128 } },
+          // Igual à API (rotas/auth.js): e-mail malformado ou senha vazia dão 400 VALIDACAO com campos, não 401.
+          properties: {
+            email: { type: 'string', format: 'email', maxLength: 254 },
+            senha: { type: 'string', minLength: 1, maxLength: 128 },
+          },
         },
       },
     },

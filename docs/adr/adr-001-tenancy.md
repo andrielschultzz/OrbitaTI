@@ -8,6 +8,7 @@
 | **Rascunho original** | 27/08/2026, revisado com números em 24/09/2026 |
 | **Substitui** | — |
 | **Revisão** | 08/11/2026 (Bloco 7): SQL corrigido para o que o código usa (`NULLIF` e `set_config`). A decisão não mudou |
+| **Revisão** | 10/11/2026 (Bloco 15): as exceções ao RLS são **duas** funções, não uma (nota na seção "As exceções controladas"). A decisão não mudou |
 
 ---
 
@@ -128,7 +129,30 @@ O `FORCE ROW LEVEL SECURITY` é deliberado: sem ele, o dono da tabela ignora a p
 
 **Por que o `DEFAULT`.** O código nunca informa o `tenant_id` num INSERT: o banco preenche com o tenant da sessão (T-RLS-13). Um INSERT com o `tenant_id` de outro tenant é barrado pelo `WITH CHECK` (T-RLS-04).
 
-**A exceção única do login.** Para fazer login, a API ainda não sabe o tenant. A busca da credencial passa pela função `orbita.buscar_credencial`, cujo dono é o papel `orbita_auth` (com `BYPASSRLS` e sem login). Nenhum papel de aplicação tem `BYPASSRLS` (T-RLS-14). Detalhes em [`adr-002-identidade-tenant.md`](adr-002-identidade-tenant.md).
+**~~A exceção única do login.~~ As exceções controladas (ver nota de 10/11).** Para fazer login, a API ainda não sabe o tenant. A busca da credencial passa pela função `orbita.buscar_credencial`, cujo dono é o papel `orbita_auth` (com `BYPASSRLS` e sem login). Nenhum papel de aplicação tem `BYPASSRLS` (T-RLS-14). Detalhes em [`adr-002-identidade-tenant.md`](adr-002-identidade-tenant.md).
+
+> **Nota de revisão — 10/11/2026 (Bloco 15): são duas exceções, não uma.** Desde a migração
+> `db/migrations/004_exclusao.sql` (bloco 14, LGPD), o RLS é contornado por **duas funções `SECURITY DEFINER`,
+> as duas do papel `orbita_auth`**, e cada uma devolve só o mínimo:
+>
+> | Função | Quando roda | O que devolve | Quem pode executar |
+> |---|---|---|---|
+> | `orbita.buscar_credencial(email)` (001) | No login | A credencial de **um** e-mail (id, tenant, hash da senha, papel, plano) | Só `api_contatos` |
+> | `orbita.tenants_para_excluir()` (004) | No job diário de exclusão (3 h) | **Só os ids** dos tenants cancelados há mais de 30 dias: nem nome, nem plano, nem datas | Só `api_contatos` |
+>
+> **Por que a segunda existe.** O job diário precisa saber **quais** tenants apagar antes de ter um tenant
+> fixado no contexto, a mesma situação do login. Sem `app.tenant_id`, o RLS esconde todas as linhas de
+> `orbita.tenants`, e o job não acharia ninguém. A função responde só a lista de ids; depois, o job apaga cada
+> tenant com `withTenant(id)`, sob RLS, como qualquer outra escrita da API. O caminho privilegiado continua
+> pequeno: duas consultas fixas, sem parâmetro livre de tenant, e nenhum papel de aplicação com `BYPASSRLS`.
+>
+> **Comentários de código que ficaram desatualizados, e não serão editados.** O comentário de
+> `db/migrations/001_base.sql` ("a ÚNICA exceção controlada ao RLS") e o de `db/init/01-papeis.sh` ("existe só
+> para ser dono da função `orbita.buscar_credencial`") estão errados desde a 004. Não vamos corrigi-los:
+> o `db/migrate.js` guarda o SHA-256 de cada migração aplicada e **para com erro** se o arquivo mudar ("mudou
+> depois de aplicada"), então editar a 001, mesmo só um comentário, travaria a migração em todo banco que já a
+> tem; e o `01-papeis.sh` só roda no primeiro boot do Postgres, então mudá-lo não muda nada nos bancos
+> existentes. **Este ADR é a fonte certa.**
 
 ## Consequências
 

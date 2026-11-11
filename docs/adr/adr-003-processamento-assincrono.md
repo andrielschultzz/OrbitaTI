@@ -2,7 +2,7 @@
 
 | Campo | Valor |
 |---|---|
-| **Status** | Aceito — revisado em 08/11/2026 (nota abaixo e [ADR-004](adr-004-comunicacao-entre-servicos.md)) |
+| **Status** | Aceito — revisado em 08/11/2026 (nota abaixo e [ADR-004](adr-004-comunicacao-entre-servicos.md)) e em 10/11/2026 (nota do Bloco 15: exceção da exportação LGPD) |
 | **Data** | 2026-09-24 |
 | **Decisores** | Andriel Schultz, Cristofer Mateus Rutzen |
 | **Depende de** | [ADR-001 — Pool com RLS](adr-001-tenancy.md) |
@@ -30,8 +30,38 @@
 >    payload do job, sem S3. Ver [ADR-004](adr-004-comunicacao-entre-servicos.md).
 > 4. **Rate limit por tenant**, que não existia na versão original: seção "Rate limit por tenant" abaixo.
 > 5. **Correções de fato:** o Redis roda sem persistência em disco; o 429 de importação não traz tempo de
->    espera; não há fila morta monitorada; o Gerador de Documentos e o Serviço de Notificações ainda não
->    existem.
+>    espera; não há fila morta monitorada; o Gerador de Documentos ~~e o Serviço de Notificações ainda não
+>    existem~~ não existe (o Serviço de Notificações existe desde o bloco 10: ver nota de 10/11).
+
+> **Nota de revisão — 10/11/2026 (Bloco 15).** A decisão central não mudou. Três correções:
+>
+> 1. **Exceção declarada à regra "mais de 50 registros ou mais de 2 s vai para a fila": a exportação LGPD.**
+>    O `GET /conta/exportacao` (e o mesmo JSON pelo link, `GET /conta/exportacao/arquivo`) lê o tenant inteiro
+>    **dentro da requisição** (`montarExportacao` em `services/api-contatos/src/rotas/conta.js`): tenant,
+>    usuários, contatos, interações e importações. Passa de 50 registros em qualquer tenant real. Aceitamos
+>    porque:
+>    - **lê um tenant só**, sob RLS (`withTenant`), e só lê: não há rajada de escrita disputando o banco com os
+>      outros tenants, que é o problema que a fila resolve;
+>    - **o tamanho é pequeno, mas o limite não vem do plano.** O `planos.js` limita usuários (1 ou 10) e linhas
+>      **por importação** (100 ou 5.000), não o total de contatos do tenant. O que dá a ordem de grandeza é a
+>      premissa do produto: o maior tenant tem ~1.200 contatos e ~6.000 interações em 12 meses (5 por contato,
+>      [ADR-001](adr-001-tenancy.md)), e a base inteira dos 45 tenants cabe em ~111 MB;
+>    - **é rara:** o admin pede uma vez, ao sair (ou pelo link, nos 30 dias depois do cancelamento, com rate
+>      limit de 10/min por IP);
+>    - **pela fila, precisaria de armazenamento de arquivo:** o worker geraria o JSON e alguém teria de
+>      guardá-lo até o download. O projeto não tem S3 ([ADR-004](adr-004-comunicacao-entre-servicos.md), opção
+>      3B), e guardar um arquivo com todos os dados pessoais do tenant no Redis contraria o cuidado que a fila
+>      `emails` já tem (`removeOnComplete`).
+>
+>    **Gatilho de revisão:** a exportação passar de **2 s** (a meta da própria regra). **Tempo ainda não
+>    medido — TODO: medir com o tenant do seed (TechConsult) e registrar aqui.** Também revisar se surgir um
+>    limite de contatos por plano maior que a premissa, ou se a exportação passar a ser pedida com frequência.
+> 2. **O Serviço de Notificações existe desde o bloco 10** (`services/notificacoes/`, fila `emails`). Ele envia
+>    dois e-mails: a confirmação de cadastro (bloco 10) e o link de exportação depois do cancelamento
+>    (`exportacao-disponivel`, bloco 14). **O aviso de importação concluída não foi feito**, nem o alerta de
+>    contato frio: o Portal continua mostrando o progresso por `GET /importacoes/:id`.
+> 3. **Dois limites por IP que faltavam na tabela "Rate limit por tenant"**, acrescentados lá: confirmação de
+>    e-mail (bloco 10) e link de exportação (bloco 14), 10/min por IP cada (`services/api-contatos/src/limite.js`).
 
 ## Contexto
 
@@ -67,13 +97,15 @@ A requisição responde em milissegundos com "recebido". A carga vira uma sequê
 
 **Toda operação que toca mais de 50 registros ou leva mais de 2 segundos sai do caminho da requisição e vira job na Fila de Trabalhos. Workers processam em lotes de 100 com pausa de 500 ms entre lotes, respeitando uma quota de jobs simultâneos por tenant.**
 
+*(Exceção declarada em 10/11/2026: a exportação LGPD roda na requisição. Ver nota do Bloco 15, no topo.)*
+
 Adotamos a opção C. As três operações que se qualificam hoje:
 
 | Operação | Container | Por quê |
 |---|---|---|
 | Importação de contatos via CSV | Worker de Importação | Centenas de INSERTs em rajada. **Implementado na Etapa 2** |
 | Geração de proposta em PDF | Gerador de Documentos | Renderização leva 2 a 5 s por documento. **Fora do escopo do semestre** (contrato, seção 10) |
-| Disparo de alertas de contato frio | Serviço de Notificações | Varre a base do tenant e envia e-mails em lote. **Não implementado.** O serviço existe desde o bloco 10, mas só com o e-mail de confirmação de cadastro (fila `emails`, ver ADR-004) |
+| Disparo de alertas de contato frio | Serviço de Notificações | Varre a base do tenant e envia e-mails em lote. **Não implementado.** O serviço existe desde o bloco 10, mas só com o e-mail de confirmação de cadastro (fila `emails`, ver ADR-004) e, desde o bloco 14, o do link de exportação (nota de 10/11) |
 
 ### Os números e de onde saíram
 
@@ -140,6 +172,8 @@ busca sem parar.
 | Por tenant, somando todas as rotas | 60 req/min **por usuário permitido no plano** | Individual: 1 usuário × 60 = **60/min**. Equipe: 10 usuários × 60 = **600/min**. 60/min é um clique por segundo em rajada, mais do que uma pessoa faz usando o Portal |
 | Login | 10 req/min por IP + e-mail (em minúsculas) | Dificulta força bruta numa conta sem travar quem errou a senha 2 ou 3 vezes |
 | Cadastro de tenant | 60 req/min por IP (`LIMITE_CADASTRO_POR_MIN`) | Barra criação de contas em massa a partir de um mesmo endereço |
+| Confirmação de e-mail (`GET /auth/confirmar`) **(bloco 10)** | 10 req/min por IP | Rota pública, sem tenant. Uma pessoa clica no link 1 ou 2 vezes; o limite protege banco e CPU de quem martela a rota com lixo |
+| Link de exportação (`GET /conta/exportacao/arquivo`) **(bloco 14)** | 10 req/min por IP | Pública como a confirmação, mas pesa mais: cada chamada válida monta o JSON inteiro do tenant |
 | Fora do limite | `/saude`, `/planos` e `/interno/*` | `/saude` e `/planos` só leem memória ou fazem um `SELECT 1`: checar o limite (uma ida ao Redis) custaria mais que a resposta. `/interno` é o worker, que já se limita (lote + pausa + `concurrency: 2`) |
 
 - **Os números vêm do `planos.js`:** os limites ficam em `services/api-contatos/src/planos.js`, que é a única
@@ -167,7 +201,7 @@ O pico de um tenant vira rajadas curtas em vez de um bloqueio longo, o que torna
 
 ### Negativas
 
-**A importação deixa de ser instantânea.** O usuário envia o arquivo e recebe o resultado depois, não na hora. *Mitigação:* o Portal Web consulta `GET /importacoes/:id` e mostra o progresso (lotes aplicados ÷ total de lotes) e, ao concluir, "X contatos importados, Y linhas com erro". Percepção de progresso resolve a maior parte do desconforto de espera. Aviso por e-mail ao concluir depende do Serviço de Notificações (planejado, bloco 10).
+**A importação deixa de ser instantânea.** O usuário envia o arquivo e recebe o resultado depois, não na hora. *Mitigação:* o Portal Web consulta `GET /importacoes/:id` e mostra o progresso (lotes aplicados ÷ total de lotes) e, ao concluir, "X contatos importados, Y linhas com erro". Percepção de progresso resolve a maior parte do desconforto de espera. ~~Aviso por e-mail ao concluir depende do Serviço de Notificações (planejado, bloco 10).~~ O Serviço de Notificações existe desde o bloco 10, mas o aviso por e-mail ao concluir a importação **não foi feito** (nota de 10/11).
 
 **Mais uma peça para operar.** Redis é um componente novo, com seu próprio modo de falhar. Se a fila cair, importações e propostas param — ainda que o CRM continue funcionando para leitura e cadastro manual. *Mitigação:* com o Redis fora, só `POST /importacoes` responde 503 e o resto da API segue (T-RES-03 e 04). Retry com backoff exponencial (3 tentativas, espera de 2 s e 4 s). Jobs que falham ficam 24 h no Redis para investigação (`removeOnFail`). **Correção de 08/11:** o Redis roda **sem persistência em disco**; se ele reiniciar, os jobs pendentes podem se perder. O efeito e a mitigação estão no [ADR-004](adr-004-comunicacao-entre-servicos.md).
 

@@ -2,7 +2,7 @@
 
 **Unidade:** Andriel Schultz e Cristofer Mateus Rutzen
 **Etapa 1 — Proposta de arquitetura**
-**Status:** preliminar — aprofundado na Etapa 3. **Revisão de 10/11/2026 (bloco 14):** exportação, cancelamento e exclusão em 30 dias implementados; ver "Como está implementado" e a tabela "A implementar"
+**Status:** preliminar — aprofundado na Etapa 3. **Revisão de 10/11/2026 (bloco 14):** exportação, cancelamento e exclusão em 30 dias implementados; ver "Como está implementado" e a tabela "A implementar". **Revisão de 10/11/2026 (Bloco 15):** promessas que o código não cumpre foram marcadas como **pendência** ou **fora do escopo (D-15.1)** (a apresentação é local, sem ambiente publicado; decisão em [`pendencias-bloco-7.md`](pendencias-bloco-7.md), seção 13)
 
 > Documento de arquitetura, não parecer jurídico. As bases legais indicadas são a leitura técnica da equipe e devem ser validadas por profissional da área antes de o produto entrar em produção com clientes reais.
 
@@ -39,7 +39,7 @@ Há uma exceção: para os dados dos **usuários** do tenant — quem faz login,
 | Id do tenant no job da fila `exclusao-importacao` (bloco 14) | — (não é dado pessoal) | Pedir ao Serviço de Importação que apague o schema dele | — | Até o fim do job; se falhar de vez, 7 dias para reprocessar |
 | Data de confirmação do e-mail (`usuarios.email_confirmado_em`) | Usuário | Saber se o endereço é da pessoa | Execução de contrato — art. 7º, V | Vida da conta |
 | Senha (hash Argon2id) | Usuário | Autenticação | Execução de contrato — art. 7º, V | Vida da conta |
-| Logs de acesso — IP, data/hora, ação | Usuário | Segurança, auditoria e investigação de incidente | Obrigação legal — art. 7º, II, c/c Marco Civil art. 15 | **6 meses** |
+| Logs de acesso — IP, data/hora, ação | Usuário | Segurança, auditoria e investigação de incidente | Obrigação legal — art. 7º, II, c/c Marco Civil art. 15 | **6 meses** *(meta; revisão de 10/11/2026: **fora do escopo (D-15.1)**. Hoje o log vai para o stdout, pino na API, e o compose não configura `logging` nem retenção: o log dura o que o Docker guardar. Em produção, definir a retenção de 6 meses no coletor de logs)* |
 | Dados de cobrança | Tenant (PJ ou MEI) | Faturamento e obrigação fiscal | Obrigação legal — art. 7º, II | **5 anos** (prazo fiscal) |
 
 ### Dados de contato comercial — OrbitaTI é operador
@@ -59,7 +59,7 @@ Há uma exceção: para os dados dos **usuários** do tenant — quem faz login,
 
 O risco real está no **campo livre de notas de interação**, onde um usuário pode digitar qualquer coisa — inclusive informação sensível sobre um contato. É o ponto mais frágil do mapeamento.
 
-*Medidas:* aviso no rótulo do campo orientando a registrar apenas informação de negócio; cláusula no contrato de operador atribuindo ao tenant a responsabilidade pelo que seus usuários escrevem; e, a partir da Etapa 3, verificação automática que alerta — sem bloquear — quando o texto contém padrão de CPF ou de dado de saúde.
+*Medidas:* aviso no rótulo do campo orientando a registrar apenas informação de negócio (**pendência**, revisão de 10/11/2026: o campo "Nota" em `web/src/contatos/Interacoes.jsx` ainda não tem esse aviso, só o placeholder "O que foi combinado?"); cláusula no contrato de operador atribuindo ao tenant a responsabilidade pelo que seus usuários escrevem; e, a partir da Etapa 3, verificação automática que alerta — sem bloquear — quando o texto contém padrão de CPF ou de dado de saúde.
 
 ---
 
@@ -73,7 +73,7 @@ O tenant passa por cinco fases — assinar, configurar, usar, crescer e sair. A 
 | **Configurar / usar** | Tenant insere contatos. A partir daqui o OrbitaTI trata dado de terceiro como operador |
 | **Crescer** | Volume aumenta; papéis e permissões se diferenciam |
 | **Cancelar** | O login passa a ser recusado (o token já emitido vale até expirar, no máximo 15 min). **Exportação completa em JSON disponível por 30 dias**, por um link enviado por e-mail ao admin. *Revisão do bloco 14:* o desenho original dizia "modo somente leitura" e "CSV e JSON". Ficou mais simples: sem login não há leitura, e o formato é o do contrato (JSON, seção 9 de [`contrato-api.md`](contrato-api.md)). Quem precisar de CSV no formato do modelo de importação tem o `scripts/restaurar-um-tenant.ps1` (bloco 11, uso do operador) |
-| **Excluir** | Após 30 dias, exclusão definitiva por um job diário: cada serviço apaga o próprio schema (`orbita` pela API, `importacao` pelo worker), sempre com o tenant fixado e sob RLS. O armazenamento de objetos está adiado ([ADR-004](adr/adr-004-comunicacao-entre-servicos.md)), então não há prefixo para remover. Logs de acesso sobrevivem os 6 meses do Marco Civil, desvinculados do conteúdo: o log da exclusão leva só o `tenant_id` e quantas linhas saíram de cada tabela |
+| **Excluir** | Após 30 dias, exclusão definitiva por um job diário: cada serviço apaga o próprio schema (`orbita` pela API, `importacao` pelo worker), sempre com o tenant fixado e sob RLS. O armazenamento de objetos está adiado ([ADR-004](adr/adr-004-comunicacao-entre-servicos.md)), então não há prefixo para remover. Logs de acesso sobrevivem os 6 meses do Marco Civil (*meta; a retenção de 6 meses é **fora do escopo (D-15.1)**, ver o inventário*), desvinculados do conteúdo: o log da exclusão leva só o `tenant_id` e quantas linhas saíram de cada tabela |
 
 O prazo de 30 dias é declarado no contrato e implementado como job agendado, não como tarefa manual. **Exclusão que depende de alguém lembrar não é medida de segurança.**
 
@@ -114,7 +114,7 @@ que é o que o T-LGPD-03 faz pelo `comoDono`) e rodar a execução manual. O lin
 - **A exportação é montada em memória.** Para o tamanho do produto (até 10 usuários, contatos na casa dos
   milhares) cabe com folga. Um tenant muito maior pediria streaming do JSON.
 - **No kind local, o limite de 10/min por IP do link vira global** (todos os clientes chegam com o mesmo IP
-  interno): K2 em [`pendencias-bloco-7.md`](pendencias-bloco-7.md). No compose, modelo da VM, o IP real chega.
+  interno): K2 em [`pendencias-bloco-7.md`](pendencias-bloco-7.md). No compose, ~~modelo da VM~~ ambiente da apresentação (D-15.1, revisão de 10/11/2026), o IP real chega.
 
 ---
 
@@ -127,13 +127,13 @@ que é o que o T-LGPD-03 faz pelo `comoDono`) e rodar a execução manual. O lin
 | **Row-Level Security no PostgreSQL** | [ADR-001](adr/adr-001-tenancy.md) | Vazamento entre tenants — o risco número um do modelo pool |
 | **`tenant_id` no JWT assinado, nunca em parâmetro** | [ADR-002](adr/adr-002-identidade-tenant.md) | Acesso cruzado por manipulação de URL |
 | **Suíte de isolamento a cada deploy** | [CQ-02](atributos.md#cq-02) | Regressão silenciosa de isolamento |
-| **TLS 1.3 em todo tráfego** | Infraestrutura | Interceptação em trânsito |
-| **Criptografia em repouso** | Banco e armazenamento de objetos | Acesso físico ao meio |
+| **TLS 1.3 em todo tráfego** — **fora do escopo (D-15.1)**, revisão de 10/11/2026: o nginx do Portal escuta só HTTP na 8080, sem TLS. Em produção: certificado ou proxy com TLS, e o HSTS ([`portal-pendencias.md`](portal-pendencias.md), seção 2) | Infraestrutura | Interceptação em trânsito |
+| **Criptografia em repouso** — **fora do escopo (D-15.1)**, revisão de 10/11/2026: não há criptografia em repouso configurada no compose nem no kind. Em produção: disco ou banco gerenciado com criptografia | Banco e armazenamento de objetos | Acesso físico ao meio |
 | **Senha com Argon2id** | API REST | Vazamento de credenciais em caso de dump |
 | **Log sem e-mail completo e sem token de link** (bloco 10): `?token=` vira `[oculto]` na API, o nginx registra só o caminho e o worker de e-mail mascara o destinatário (`m***@dominio`) | API, nginx do Portal, Serviço de Notificações (T-OBS-04) | Quem lê o log ganhar um link válido por 24 h ou uma lista de e-mails |
 | **Prefixo por tenant no armazenamento** | [C4 nível 2](02-arquitetura-c4.md) | Acesso cruzado a PDFs e anexos |
-| **Logs de acesso por 6 meses** | Infraestrutura | Investigação de incidente |
-| **Backup com RPO de 15 min** | [CQ-05](atributos.md#cq-05) | Perda de dados — art. 46 exige integridade |
+| **Logs de acesso por 6 meses** — **fora do escopo (D-15.1)**, revisão de 10/11/2026: sem retenção configurada (pino no stdout, compose sem `logging`) | Infraestrutura | Investigação de incidente |
+| **Backup com RPO de 15 min** — revisão de 10/11/2026: o ensaio do CQ-05 provou o procedimento e o RTO, **não o RPO**, que depende do arquivamento de WAL de um banco gerenciado ([`ensaios/cq05-2026-11-08.md`](ensaios/cq05-2026-11-08.md)) | [CQ-05](atributos.md#cq-05) | Perda de dados — art. 46 exige integridade |
 
 ### A implementar até a Etapa 3
 
@@ -159,7 +159,7 @@ O art. 18 dá ao titular direito de confirmação, acesso, correção, anonimiza
 
 | Titular | Quem responde | Como o OrbitaTI atende |
 |---|---|---|
-| **Usuário do tenant** | OrbitaTI, como controlador | Tela de conta: ver, corrigir, exportar e excluir os próprios dados |
+| **Usuário do tenant** | OrbitaTI, como controlador | Tela de conta: ver, ~~corrigir~~, exportar e excluir os próprios dados. *Revisão de 10/11/2026 (Bloco 15):* **corrigir é pendência**: não existe rota para mudar o nome ou o e-mail do usuário (só `/conta/exportacao` e `/conta/cancelamento`, seção 9 do contrato). Até existir, o produto não oferece caminho para corrigir |
 | **Contato comercial** | **O tenant**, como controlador | O OrbitaTI encaminha o pedido ao tenant em até 2 dias úteis e fornece as ferramentas — busca, edição, exclusão e exportação — para o tenant cumprir o prazo legal |
 
 Se um contato comercial escrever para o OrbitaTI pedindo exclusão, a resposta não é apagar. É identificar em quais tenants aquele dado existe, comunicar esses tenants e dar a eles a ferramenta. **Apagar por conta própria seria o operador decidindo sobre dado que não é dele** — e ainda destruiria informação do controlador sem autorização.
@@ -173,7 +173,7 @@ Esse fluxo precisa estar no termo de uso antes do primeiro cliente real.
 | # | Risco | Impacto | Probabilidade | Tratamento |
 |---|---|---|---|---|
 | R1 | Vazamento entre tenants por falha de isolamento | **Crítico** — dado de terceiro exposto, incidente comunicável à ANPD | Baixa | RLS com `FORCE`, suíte CQ-02 a cada deploy, ponto único de acesso ao banco |
-| R2 | Dado sensível digitado em campo livre | Alto — tratamento sem base legal adequada | **Média** | Aviso no campo, cláusula contratual, detecção na Etapa 3 |
+| R2 | Dado sensível digitado em campo livre | Alto — tratamento sem base legal adequada | **Média** | Aviso no campo (**pendência**, revisão de 10/11/2026: ainda não está no Portal), cláusula contratual, detecção na Etapa 3 |
 | R3 | Tenant cadastra contatos sem base legal válida | Alto — mas a responsabilidade é do controlador | Média | Contrato de operador explicitando a obrigação do tenant |
 | R4 | Retenção indefinida após cancelamento | Médio — art. 16 exige eliminação após a finalidade | Baixa | Job automático de exclusão em 30 dias (**implementado no bloco 14**, T-LGPD-03) |
 | R5 | Vazamento da chave de assinatura do JWT | **Crítico** — permite forjar acesso a qualquer tenant | Baixa | Chave em gerenciador de segredos fora do repositório, rotação semestral |
