@@ -57,7 +57,7 @@ function AreaAdmin() {
 
   const avisarFalha = (falha) => {
     if (falha.codigo === 'NAO_AUTENTICADO') return;
-    // 404 em /conta/* = o bloco 14 ainda não existe na API ("Essa função ainda não está disponível.")
+    // 503 FILA_INDISPONIVEL no cancelamento: nada mudou na conta (contrato 1.6); a tela 'conta' explica.
     mostrar({ tipo: 'erro', texto: mensagemDeErro(falha, 'conta'), codigo: ehInesperado(falha) ? falha.requestId : null });
   };
 

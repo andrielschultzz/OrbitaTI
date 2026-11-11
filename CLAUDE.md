@@ -20,6 +20,7 @@ oralmente tudo o que for gerado: explique o porquê de cada decisão em linguage
 - `docs/lgpd.md` — OrbitaTI é OPERADOR dos dados dos contatos
 - `docs/contrato-api.md` — contrato HTTP entre Portal e API (rotas, formatos, erros com `codigo`).
   Mudou a API, muda o contrato no mesmo passo
+- `docs/dpa-esboco.md` — esboço do contrato de operador (bloco 14), cláusula por cláusula com onde se cumpre
 
 Se uma tarefa exigir contrariar um ADR, **pare e pergunte**. Não mude a decisão em silêncio.
 
@@ -49,14 +50,14 @@ Se uma tarefa exigir contrariar um ADR, **pare e pergunte**. Não mude a decisã
 ```
 .github/workflows/ci.yml GitHub Actions: job api (compose com o web + npm test com TESTES_LENTOS=1 + seed duas vezes, a 2ª com --sem-mudancas + E2E do Portal contra a API real) e job web (unitários, build, E2E contra o simulador)
 docker-compose.carga.yml override SÓ do ensaio do CQ-01: postgres com 1 vCPU e 2 GB (instância do ADR-001); usado pelo medir-cq01.ps1 -RecursosProducao
-services/api-contatos/   porta de entrada: auth, contatos, importações, /planos, rotas /interno; test/ = unitários sem stack (T-ISO-13, T-OBS-03, T-RES-07)
-services/importacao/     worker BullMQ: lê o CSV do job, valida, envia lotes à API; /saude interno na 3001 (sem porta publicada); test/ = unitários sem stack
+services/api-contatos/   porta de entrada: auth, contatos, importações, /planos, rotas /interno, /conta (bloco 14); src/exclusao.js = job diário de exclusão LGPD (agendador BullMQ); src/excluir-agora.js = a mesma exclusão, uma vez, à mão; test/ = unitários sem stack (T-ISO-13, T-OBS-03, T-RES-07)
+services/importacao/     worker BullMQ: lê o CSV do job, valida, envia lotes à API; 2º worker da fila "exclusao-importacao" apaga o schema importacao de um tenant excluído (bloco 14); /saude interno na 3001 (sem porta publicada); test/ = unitários sem stack
 services/notificacoes/   worker BullMQ da fila "emails" (bloco 10): monta e envia o e-mail por SMTP (Mailpit); sem banco; /saude interno na 3001; test/ = unitários
 db/init/                 cria papéis do Postgres (roda só no primeiro boot)
 db/migrations/           schemas, tabelas, RLS, grants
 db/migrate.js            aplica migrações (imagem orbitati/migrate: db/Dockerfile, pacote próprio fora dos workspaces)
 deploy/k8s/              manifests do kind (namespace orbitati), aplicados pelo scripts/deploy-kind.ps1; 70-web.yaml = Portal na NodePort 30080; exemplos/ = Secret com valores falsos (fora do apply)
-tests/                   testes de integração (isolamento, RLS, importação, confirmação de e-mail, interações e "esfriando", CQ-03); tests/apoio/ = funções comuns, inclusive mailpit.js (não são testes)
+tests/                   testes de integração (isolamento, RLS, importação, confirmação de e-mail, interações e "esfriando", LGPD, CQ-03); tests/apoio/ = funções comuns, inclusive mailpit.js (não são testes)
 docs/ensaios/            relatórios datados de medição (CQ-01, CQ-03, CQ-04 e T-CQ04-02, CQ-05, Lighthouse); cq04-*-amostras.csv = CSV da sonda
 backups/                 dumps e CSVs do bloco 11 (FORA do git: dado pessoal); criado pelo backup.ps1
 tests/carga/             k6 (CQ-01): cq01.js (cenários), janelas.js (veredito "na janela" x "geral") e teste; resultados/ = saída do medir-cq01.ps1 (k6.json fora do git)
@@ -87,6 +88,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\sonda.ps1 [-Url http://127.0.
 powershell -ExecutionPolicy Bypass -File .\scripts\medir-cq01.ps1 [-RecursosProducao] [-ManterDados]   # CQ-01 com e sem mitigação (~8 min); no fim devolve o worker a 100/500, apaga os tenants e (com -RecursosProducao) recria o postgres sem limite
 docker compose --profile carga run --rm k6 run /scripts/cq01.js   # só o k6 (grafana/k6:1.3.0), na rede do compose
 npx vitest run tests/cq03-onboarding.test.js   # só o CQ-03 (20 cadastros; imprime p50, p90 e máximo)
+docker compose exec api-contatos node src/excluir-agora.js   # exclusão LGPD agora (só cancelados há > 30 dias), sem esperar as 3 h; no kind: kubectl -n orbitati exec deploy/api-contatos -- node src/excluir-agora.js
 docker compose logs -f api-contatos importacao notificacoes web
 powershell -ExecutionPolicy Bypass -File .\scripts\deploy-kind.ps1 [-SemBuild] [-SemSeed]  # kind "saas": build (com o web), kind load, apply, migração, rollout restart, seed em http://127.0.0.1:30080/api
 kubectl get pods -n orbitati          # estado no kind (nunca imprima o Secret: nada de get secret -o yaml)
@@ -169,6 +171,10 @@ Variáveis do Portal:
 | Armazenamento do rate limit | **Redis** (a API roda com 2 réplicas no kind; em memória cada réplica contaria separado e o limite dobraria). Redis fora → `skipOnError: true`, o limite é ignorado em vez de derrubar a API |
 | Rate limit de login | 10 req/min por IP + e-mail |
 | Rate limit de confirmação de e-mail | 10 req/min por IP (`GET /auth/confirmar`; mesmo número do login: uma pessoa clica 1 ou 2 vezes). No kind vira global (K2) |
+| Rate limit do link de exportação | 10 req/min por IP (`GET /conta/exportacao/arquivo`, pública). No kind vira global (K2) |
+| Link de exportação (bloco 14) | JWT com `JWT_SEGREDO` e `finalidade: "exportar-conta"`, vence em **`cancelado_em + 30 dias`** (reenviar não estende). Não serve como sessão (401) e a sessão não serve como link (400). Depois da exclusão, 400 `LINK_INVALIDO` |
+| E-mail do cancelamento | Enfileirado **na transação** do cancelamento: fila fora → 503 `FILA_INDISPONIVEL` e nada muda. `jobId = exportacao-<tenant_id>-<uuid>` (novo a cada pedido: cancelar de novo = pedir o link de novo); mesmas opções do job de confirmação |
+| Exclusão LGPD | Tenants cancelados há **mais de 30 dias** (`orbita.tenants_para_excluir()`, dona `orbita_auth`, `EXECUTE` só para `api_contatos`). Job diário às **3 h (America/Sao_Paulo)**, agendador BullMQ com id fixo `exclusao-diaria` (uma vez por dia mesmo com 2 réplicas). Pedido ao worker na fila `exclusao-importacao` (`jobId = excluir-<tenant_id>`, 10 tentativas, backoff exponencial de 30 s, falha fica 7 dias); a API só apaga `orbita` depois de enfileirar |
 | Link de confirmação de e-mail | JWT de **24 h** com `JWT_SEGREDO` e `finalidade: "confirmar-email"`. Não serve como sessão (401) e a sessão não serve para confirmar (400). O login não exige confirmação |
 | Job de e-mail (fila `emails`) | 5 tentativas, backoff exponencial de 2 s; `removeOnComplete`; falha fica 24 h (`removeOnFail`, a validade do link); `jobId = confirmar-cadastro-<usuario_id>` (**sem `:`**, que o BullMQ 6 recusa); worker com `concurrency: 5` |
 | Rate limit de cadastro | `LIMITE_CADASTRO_POR_MIN` por IP (padrão 60). A suíte manda um `X-Forwarded-For` 203.0.113.N por arquivo (`tests/apoio/api.js`) |
@@ -195,6 +201,9 @@ no mesmo passo e registre a mudança.
 - Todo 404 em rota com `:id` gera log `evento: "recurso_nao_encontrado"` com `tenant_id`, `metodo`, `rota` e `id`
   (decisão 6; com RLS, "de outro tenant" e "inexistente" são indistinguíveis). Fica no `setErrorHandler` do
   `app.js`: rota nova com `:id` ganha o evento sozinha (T-ISO-19).
+- Eventos de auditoria da LGPD (bloco 14), sempre com `tenant_id` e nunca com dado pessoal: `exportacao_baixada`
+  (`origem: sessao|link`), `tenant_cancelado`, `tenant_excluido` (com as contagens por tabela), `exclusao_adiada`,
+  `importacao_dados_excluidos` e `exclusao_importacao_falhou` (worker).
 - `GET /saude` → `{ db: "ok"|"fora", fila: "ok"|"fora" }`. Fila fora não derruba a API: só
   `POST /importacoes` responde 503 (conexão BullMQ com `enableOfflineQueue: false`). O cadastro conclui com a
   fila fora e só registra `warn` `evento: "email_nao_enfileirado"` (T-RES-06).

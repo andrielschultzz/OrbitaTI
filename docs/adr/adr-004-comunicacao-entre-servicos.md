@@ -253,6 +253,21 @@ deste ADR**: é a opção 1B (fila) para um segundo consumidor.
 
 **O que falta para a VM:** SMTP do provedor real com autenticação e TLS, e remetente com SPF/DKIM (N4).
 
+### Exclusão de tenant: API → Importação (bloco 14, 10/11/2026)
+
+Segunda fila entre a API e a Importação, pelo mesmo motivo de sempre: **cada serviço só toca o próprio schema**
+(regra 10; achado B1). **Não muda nenhuma decisão deste ADR.**
+
+| Ponto | Como ficou | Por quê |
+|---|---|---|
+| Quem decide | Job diário **na API** (`exclusao.js`), agendador do BullMQ com id fixo `exclusao-diaria` (3 h, São Paulo) | A API é dona de `orbita`, onde está o `cancelado_em`. Id fixo: com 2 réplicas, um agendador só e um job por dia |
+| Quem é excluído | `orbita.tenants_para_excluir()`: `SECURITY DEFINER`, dona `orbita_auth`, `EXECUTE` só para `api_contatos`; devolve só ids | Mesma exceção controlada do login: saber quem apagar exige ler sem tenant fixado |
+| Fila | `exclusao-importacao`, payload `{tenant_id}`, `jobId = excluir-<tenant_id>` | Nenhum dado pessoal no Redis; o id fixo deixa duas execuções seguidas (manual e agendada) sem pedido duplicado |
+| Ordem | A API **enfileira primeiro** e só então apaga `orbita` (tabela por tabela, com `withTenant`) | Na ordem inversa, uma falha no meio deixaria `importacao` órfão para sempre. Assim, a falha só adia para o dia seguinte |
+| Worker | Segundo `Worker` no `services/importacao`, `concurrency: 1`, apaga `importacao.erros_linha` e `execucoes` com o tenant fixado | `importacao_svc` não enxerga `orbita`; a API não enxerga `importacao` |
+| Tentativas | 10, backoff exponencial de 30 s; `removeOnFail` de 7 dias | Depois que a API apagou `orbita`, ninguém pede de novo: o job falho fica para reprocessar à mão (`exclusao_importacao_falhou` no log) |
+| Job órfão de importação | Com 404 da API, o worker apaga o que gravou da importação | O worker grava em `execucoes` antes de falar com a API (achado L6) |
+
 ### Riscos aceitos
 
 **I1 — A API morre entre o COMMIT e o enfileiramento.** O `POST /importacoes` grava a importação (`na_fila`),

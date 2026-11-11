@@ -1,0 +1,127 @@
+1794354719.915881 patch: tira o preStop
+1794354729.746161 patch: rollout status terminou
+1794354744.837219 apply: devolve o preStop
+1794354758.823271 apply: rollout status terminou
+1794354761.911113 rodada 1: rollout restart
+1794354786.146555 rodada 1: rollout status terminou
+1794354799.270440 rodada 2: rollout restart
+1794354824.185499 rodada 2: rollout status terminou
+1794354837.312206 rodada 3: rollout restart
+1794354862.155231 rodada 3: rollout status terminou
+1794354874.345991 fim
+--- kubectl get pods -n orbitati -l app=web -w --output-watch-events (epoch na 1ª coluna)
+1794354718.048730 EVENT      NAME                   READY   STATUS    RESTARTS   AGE   IP            NODE                 NOMINATED NODE   READINESS GATES
+1794354718.049112 ADDED      web-6969878b48-tcmxg   1/1     Running   0          88s   10.244.0.20   saas-control-plane   <none>           <none>
+1794354718.049347 ADDED      web-6969878b48-zk4zx   1/1     Running   0          91s   10.244.0.19   saas-control-plane   <none>           <none>
+1794354720.143684 ADDED      web-5f64575bd-z9rw7    0/1     Pending   0          0s    <none>        <none>               <none>           <none>
+1794354720.144055 MODIFIED   web-5f64575bd-z9rw7    0/1     Pending   0          0s    <none>        saas-control-plane   <none>           <none>
+1794354720.158924 MODIFIED   web-5f64575bd-z9rw7    0/1     ContainerCreating   0          0s    <none>        saas-control-plane   <none>           <none>
+1794354721.655939 MODIFIED   web-5f64575bd-z9rw7    0/1     Running             0          1s    10.244.0.22   saas-control-plane   <none>           <none>
+1794354722.662426 MODIFIED   web-5f64575bd-z9rw7    1/1     Running             0          2s    10.244.0.22   saas-control-plane   <none>           <none>
+1794354722.678087 MODIFIED   web-6969878b48-tcmxg   1/1     Terminating         0          92s   10.244.0.20   saas-control-plane   <none>           <none>
+1794354722.692980 MODIFIED   web-6969878b48-tcmxg   1/1     Terminating         0          92s   10.244.0.20   saas-control-plane   <none>           <none>
+1794354722.693600 ADDED      web-5f64575bd-lxp8f    0/1     Pending             0          0s    <none>        <none>               <none>           <none>
+1794354722.694037 MODIFIED   web-5f64575bd-lxp8f    0/1     Pending             0          0s    <none>        saas-control-plane   <none>           <none>
+1794354722.708206 MODIFIED   web-5f64575bd-lxp8f    0/1     ContainerCreating   0          0s    <none>        saas-control-plane   <none>           <none>
+1794354723.673421 MODIFIED   web-5f64575bd-lxp8f    0/1     Running             0          1s    10.244.0.23   saas-control-plane   <none>           <none>
+1794354727.963974 MODIFIED   web-6969878b48-tcmxg   0/1     Completed           0          97s   10.244.0.20   saas-control-plane   <none>           <none>
+1794354728.692751 MODIFIED   web-6969878b48-tcmxg   0/1     Completed           0          98s   10.244.0.20   saas-control-plane   <none>           <none>
+1794354728.693019 DELETED    web-6969878b48-tcmxg   0/1     Completed           0          98s   10.244.0.20   saas-control-plane   <none>           <none>
+1794354729.671927 MODIFIED   web-5f64575bd-lxp8f    1/1     Running             0          7s    10.244.0.23   saas-control-plane   <none>           <none>
+1794354729.687958 MODIFIED   web-6969878b48-zk4zx   1/1     Terminating         0          102s   10.244.0.19   saas-control-plane   <none>           <none>
+1794354729.702872 MODIFIED   web-6969878b48-zk4zx   1/1     Terminating         0          102s   10.244.0.19   saas-control-plane   <none>           <none>
+1794354734.981731 MODIFIED   web-6969878b48-zk4zx   0/1     Completed           0          107s   10.244.0.19   saas-control-plane   <none>           <none>
+1794354735.706650 MODIFIED   web-6969878b48-zk4zx   0/1     Completed           0          108s   10.244.0.19   saas-control-plane   <none>           <none>
+1794354735.706915 DELETED    web-6969878b48-zk4zx   0/1     Completed           0          108s   10.244.0.19   saas-control-plane   <none>           <none>
+1794354745.089849 ADDED      web-6969878b48-rwrkg   0/1     Pending             0          0s     <none>        <none>               <none>           <none>
+1794354745.090223 MODIFIED   web-6969878b48-rwrkg   0/1     Pending             0          0s     <none>        saas-control-plane   <none>           <none>
+1794354745.105156 MODIFIED   web-6969878b48-rwrkg   0/1     ContainerCreating   0          0s     <none>        saas-control-plane   <none>           <none>
+1794354745.729063 MODIFIED   web-6969878b48-rwrkg   0/1     Running             0          0s     10.244.0.24   saas-control-plane   <none>           <none>
+1794354751.748928 MODIFIED   web-6969878b48-rwrkg   1/1     Running             0          6s     10.244.0.24   saas-control-plane   <none>           <none>
+1794354751.750014 MODIFIED   web-5f64575bd-lxp8f    1/1     Terminating         0          29s    10.244.0.23   saas-control-plane   <none>           <none>
+1794354751.763193 MODIFIED   web-5f64575bd-lxp8f    1/1     Terminating         0          29s    10.244.0.23   saas-control-plane   <none>           <none>
+1794354751.763520 ADDED      web-6969878b48-7wnd7   0/1     Pending             0          0s     <none>        <none>               <none>           <none>
+1794354751.779086 MODIFIED   web-6969878b48-7wnd7   0/1     Pending             0          0s     <none>        saas-control-plane   <none>           <none>
+1794354751.780095 MODIFIED   web-6969878b48-7wnd7   0/1     ContainerCreating   0          0s     <none>        saas-control-plane   <none>           <none>
+1794354752.041228 MODIFIED   web-5f64575bd-lxp8f    0/1     Completed           0          30s    10.244.0.23   saas-control-plane   <none>           <none>
+1794354752.758167 MODIFIED   web-6969878b48-7wnd7   0/1     Running             0          1s     10.244.0.25   saas-control-plane   <none>           <none>
+1794354752.758836 MODIFIED   web-5f64575bd-lxp8f    0/1     Completed           0          30s    10.244.0.23   saas-control-plane   <none>           <none>
+1794354752.760191 DELETED    web-5f64575bd-lxp8f    0/1     Completed           0          30s    10.244.0.23   saas-control-plane   <none>           <none>
+1794354758.765695 MODIFIED   web-6969878b48-7wnd7   1/1     Running             0          7s     10.244.0.25   saas-control-plane   <none>           <none>
+1794354758.780483 MODIFIED   web-5f64575bd-z9rw7    1/1     Terminating         0          38s    10.244.0.22   saas-control-plane   <none>           <none>
+1794354758.795644 MODIFIED   web-5f64575bd-z9rw7    1/1     Terminating         0          38s    10.244.0.22   saas-control-plane   <none>           <none>
+1794354759.014416 MODIFIED   web-5f64575bd-z9rw7    0/1     Completed           0          39s    10.244.0.22   saas-control-plane   <none>           <none>
+1794354759.791807 MODIFIED   web-5f64575bd-z9rw7    0/1     Completed           0          39s    10.244.0.22   saas-control-plane   <none>           <none>
+1794354759.792149 DELETED    web-5f64575bd-z9rw7    0/1     Completed           0          39s    10.244.0.22   saas-control-plane   <none>           <none>
+1794354762.060572 ADDED      web-85496576c5-tcjt7   0/1     Pending             0          0s     <none>        <none>               <none>           <none>
+1794354762.061431 MODIFIED   web-85496576c5-tcjt7   0/1     Pending             0          0s     <none>        saas-control-plane   <none>           <none>
+1794354762.062214 MODIFIED   web-85496576c5-tcjt7   0/1     ContainerCreating   0          0s     <none>        saas-control-plane   <none>           <none>
+1794354762.788643 MODIFIED   web-85496576c5-tcjt7   0/1     Running             0          0s     10.244.0.26   saas-control-plane   <none>           <none>
+1794354768.798249 MODIFIED   web-85496576c5-tcjt7   1/1     Running             0          6s     10.244.0.26   saas-control-plane   <none>           <none>
+1794354768.814365 MODIFIED   web-6969878b48-7wnd7   1/1     Terminating         0          17s    10.244.0.25   saas-control-plane   <none>           <none>
+1794354768.829817 MODIFIED   web-6969878b48-7wnd7   1/1     Terminating         0          17s    10.244.0.25   saas-control-plane   <none>           <none>
+1794354768.830277 ADDED      web-85496576c5-4h2nj   0/1     Pending             0          0s     <none>        <none>               <none>           <none>
+1794354768.830706 MODIFIED   web-85496576c5-4h2nj   0/1     Pending             0          0s     <none>        saas-control-plane   <none>           <none>
+1794354768.846410 MODIFIED   web-85496576c5-4h2nj   0/1     ContainerCreating   0          0s     <none>        saas-control-plane   <none>           <none>
+1794354769.808987 MODIFIED   web-85496576c5-4h2nj   0/1     Running             0          1s     10.244.0.27   saas-control-plane   <none>           <none>
+1794354774.140280 MODIFIED   web-6969878b48-7wnd7   0/1     Completed           0          23s    10.244.0.25   saas-control-plane   <none>           <none>
+1794354774.838941 MODIFIED   web-6969878b48-7wnd7   0/1     Completed           0          23s    10.244.0.25   saas-control-plane   <none>           <none>
+1794354774.839208 DELETED    web-6969878b48-7wnd7   0/1     Completed           0          23s    10.244.0.25   saas-control-plane   <none>           <none>
+1794354775.819757 MODIFIED   web-85496576c5-4h2nj   1/1     Running             0          7s     10.244.0.27   saas-control-plane   <none>           <none>
+1794354775.835801 MODIFIED   web-6969878b48-rwrkg   1/1     Terminating         0          30s    10.244.0.24   saas-control-plane   <none>           <none>
+1794354775.850550 MODIFIED   web-6969878b48-rwrkg   1/1     Terminating         0          30s    10.244.0.24   saas-control-plane   <none>           <none>
+1794354781.182664 MODIFIED   web-6969878b48-rwrkg   0/1     Completed           0          36s    10.244.0.24   saas-control-plane   <none>           <none>
+1794354781.852255 MODIFIED   web-6969878b48-rwrkg   0/1     Completed           0          36s    10.244.0.24   saas-control-plane   <none>           <none>
+1794354781.852700 DELETED    web-6969878b48-rwrkg   0/1     Completed           0          36s    10.244.0.24   saas-control-plane   <none>           <none>
+1794354799.412895 ADDED      web-66f499769d-zfbsb   0/1     Pending             0          0s     <none>        <none>               <none>           <none>
+1794354799.428560 MODIFIED   web-66f499769d-zfbsb   0/1     Pending             0          0s     <none>        saas-control-plane   <none>           <none>
+1794354799.443449 MODIFIED   web-66f499769d-zfbsb   0/1     ContainerCreating   0          0s     <none>        saas-control-plane   <none>           <none>
+1794354800.901956 MODIFIED   web-66f499769d-zfbsb   0/1     Running             0          1s     10.244.0.28   saas-control-plane   <none>           <none>
+1794354801.897791 MODIFIED   web-66f499769d-zfbsb   1/1     Running             0          2s     10.244.0.28   saas-control-plane   <none>           <none>
+1794354801.927649 MODIFIED   web-85496576c5-4h2nj   1/1     Terminating         0          33s    10.244.0.27   saas-control-plane   <none>           <none>
+1794354801.942749 MODIFIED   web-85496576c5-4h2nj   1/1     Terminating         0          33s    10.244.0.27   saas-control-plane   <none>           <none>
+1794354801.943159 ADDED      web-66f499769d-tsmd4   0/1     Pending             0          0s     <none>        <none>               <none>           <none>
+1794354801.943577 MODIFIED   web-66f499769d-tsmd4   0/1     Pending             0          0s     <none>        saas-control-plane   <none>           <none>
+1794354801.958020 MODIFIED   web-66f499769d-tsmd4   0/1     ContainerCreating   0          0s     <none>        saas-control-plane   <none>           <none>
+1794354802.904824 MODIFIED   web-66f499769d-tsmd4   0/1     Running             0          1s     10.244.0.29   saas-control-plane   <none>           <none>
+1794354807.168387 MODIFIED   web-85496576c5-4h2nj   0/1     Completed           0          39s    10.244.0.27   saas-control-plane   <none>           <none>
+1794354807.926129 MODIFIED   web-85496576c5-4h2nj   0/1     Completed           0          39s    10.244.0.27   saas-control-plane   <none>           <none>
+1794354807.926508 DELETED    web-85496576c5-4h2nj   0/1     Completed           0          39s    10.244.0.27   saas-control-plane   <none>           <none>
+1794354808.907722 MODIFIED   web-66f499769d-tsmd4   1/1     Running             0          7s     10.244.0.29   saas-control-plane   <none>           <none>
+1794354808.922336 MODIFIED   web-85496576c5-tcjt7   1/1     Terminating         0          46s    10.244.0.26   saas-control-plane   <none>           <none>
+1794354808.937585 MODIFIED   web-85496576c5-tcjt7   1/1     Terminating         0          46s    10.244.0.26   saas-control-plane   <none>           <none>
+1794354814.190326 MODIFIED   web-85496576c5-tcjt7   0/1     Completed           0          52s    10.244.0.26   saas-control-plane   <none>           <none>
+1794354814.951684 MODIFIED   web-85496576c5-tcjt7   0/1     Completed           0          52s    10.244.0.26   saas-control-plane   <none>           <none>
+1794354814.952272 DELETED    web-85496576c5-tcjt7   0/1     Completed           0          52s    10.244.0.26   saas-control-plane   <none>           <none>
+1794354837.458795 ADDED      web-57d64dcbcb-nfgwz   0/1     Pending             0          0s     <none>        <none>               <none>           <none>
+1794354837.460161 MODIFIED   web-57d64dcbcb-nfgwz   0/1     Pending             0          0s     <none>        saas-control-plane   <none>           <none>
+1794354837.489656 MODIFIED   web-57d64dcbcb-nfgwz   0/1     ContainerCreating   0          0s     <none>        saas-control-plane   <none>           <none>
+1794354839.007866 MODIFIED   web-57d64dcbcb-nfgwz   0/1     Running             0          2s     10.244.0.30   saas-control-plane   <none>           <none>
+1794354845.016381 MODIFIED   web-57d64dcbcb-nfgwz   1/1     Running             0          8s     10.244.0.30   saas-control-plane   <none>           <none>
+1794354845.031867 MODIFIED   web-66f499769d-zfbsb   1/1     Terminating         0          46s    10.244.0.28   saas-control-plane   <none>           <none>
+1794354845.046887 ADDED      web-57d64dcbcb-wfbjt   0/1     Pending             0          0s     <none>        <none>               <none>           <none>
+1794354845.047287 MODIFIED   web-66f499769d-zfbsb   1/1     Terminating         0          46s    10.244.0.28   saas-control-plane   <none>           <none>
+1794354845.047693 MODIFIED   web-57d64dcbcb-wfbjt   0/1     Pending             0          0s     <none>        saas-control-plane   <none>           <none>
+1794354845.062114 MODIFIED   web-57d64dcbcb-wfbjt   0/1     ContainerCreating   0          0s     <none>        saas-control-plane   <none>           <none>
+1794354846.025549 MODIFIED   web-57d64dcbcb-wfbjt   0/1     Running             0          1s     10.244.0.31   saas-control-plane   <none>           <none>
+1794354847.034687 MODIFIED   web-57d64dcbcb-wfbjt   1/1     Running             0          2s     10.244.0.31   saas-control-plane   <none>           <none>
+1794354847.051375 MODIFIED   web-66f499769d-tsmd4   1/1     Terminating         0          46s    10.244.0.29   saas-control-plane   <none>           <none>
+1794354847.051692 MODIFIED   web-66f499769d-tsmd4   1/1     Terminating         0          46s    10.244.0.29   saas-control-plane   <none>           <none>
+1794354850.312181 MODIFIED   web-66f499769d-zfbsb   0/1     Completed           0          51s    10.244.0.28   saas-control-plane   <none>           <none>
+1794354851.039398 MODIFIED   web-66f499769d-zfbsb   0/1     Completed           0          52s    10.244.0.28   saas-control-plane   <none>           <none>
+1794354851.053986 DELETED    web-66f499769d-zfbsb   0/1     Completed           0          52s    10.244.0.28   saas-control-plane   <none>           <none>
+1794354852.315806 MODIFIED   web-66f499769d-tsmd4   0/1     Completed           0          51s    10.244.0.29   saas-control-plane   <none>           <none>
+1794354853.059184 MODIFIED   web-66f499769d-tsmd4   0/1     Completed           0          52s    10.244.0.29   saas-control-plane   <none>           <none>
+1794354853.059441 DELETED    web-66f499769d-tsmd4   0/1     Completed           0          52s    10.244.0.29   saas-control-plane   <none>           <none>
+--- ReplicaSets do web e o preStop de cada um
+web-57d64dcbcb preStop=["sleep","5"]
+web-57f585b997 preStop=
+web-5f64575bd preStop=
+web-66f499769d preStop=["sleep","5"]
+web-6969878b48 preStop=["sleep","5"]
+web-6b84d94959 preStop=["sleep","5"]
+web-6ffd6f8f8d preStop=["sleep","5"]
+web-75597675b4 preStop=
+web-7c559969fd preStop=
+web-7c79d77d78 preStop=
+web-85496576c5 preStop=["sleep","5"]

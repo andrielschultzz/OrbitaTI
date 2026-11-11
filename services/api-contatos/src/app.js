@@ -12,10 +12,12 @@ import proxyAddr from '@fastify/proxy-addr';
 import Fastify from 'fastify';
 import autenticacao from './autenticacao.js';
 import { criarPool } from './db.js';
+import { iniciarAgendador } from './exclusao.js';
 import { ErroContrato, MENSAGENS, camposDaValidacao } from './erros.js';
 import { criarFila } from './fila.js';
 import { CADASTRO_POR_MINUTO_PADRAO, criarRedisDoLimite, registrarLimite } from './limite.js';
 import rotasAuth from './rotas/auth.js';
+import rotasConta from './rotas/conta.js';
 import rotasContatos from './rotas/contatos.js';
 import rotasInteracoes from './rotas/interacoes.js';
 import rotasImportacoes from './rotas/importacoes.js';
@@ -95,6 +97,8 @@ export function confiarNoProxy(saltos) {
  * @param {number} [opcoes.trustProxySaltos]  proxies confiáveis na frente da API (padrão: env TRUST_PROXY_SALTOS ou 1)
  * @param {string} [opcoes.portalUrl]  base dos links de e-mail (padrão: env PORTAL_URL, obrigatório)
  * @param {object|boolean} [opcoes.logger]
+ * @param {boolean} [opcoes.agendarExclusao]  liga o job diário de exclusão (bloco 14). Só o server.js passa
+ *        true: os testes nunca sobem agendador (o T-LGPD-03 chama a função do job direto).
  */
 export function buildApp(opcoes = {}) {
   const jwtSegredo = opcoes.jwtSegredo ?? process.env.JWT_SEGREDO;
@@ -158,15 +162,23 @@ export function buildApp(opcoes = {}) {
 
   const criouPool = !opcoes.pool;
   const pool = opcoes.pool ?? criarPool(opcoes.databaseUrl ?? process.env.DATABASE_URL_API, app.log);
-  if (criouPool) app.addHook('onClose', async () => pool.end());
 
   // Mesma ideia do pool: quem recebe a fila pronta (teste) cuida de fechá-la.
   const criouFila = !opcoes.fila;
   const fila = opcoes.fila ?? criarFila(redisUrl);
-  if (criouFila) app.addHook('onClose', async () => fila.fechar());
 
   const redisDoLimite = opcoes.limiteEmMemoria ? null : criarRedisDoLimite(redisUrl);
   if (redisDoLimite) app.addHook('onClose', async () => redisDoLimite.disconnect());
+
+  // Exclusão LGPD diária (bloco 14, src/exclusao.js). Precisa do Redis de verdade.
+  if (opcoes.agendarExclusao && redisUrl) {
+    const agendador = iniciarAgendador({ pool, fila, redisUrl, log: app.log.child({ servico: 'exclusao' }) });
+    app.addHook('onClose', async () => agendador.fechar());
+  }
+  // Pool e fila fecham DEPOIS do agendador (os onClose rodam na ordem em que foram registrados): um job de
+  // exclusão em andamento termina com o banco ainda aberto.
+  if (criouPool) app.addHook('onClose', async () => pool.end());
+  if (criouFila) app.addHook('onClose', async () => fila.fechar());
 
   // Todo response leva o x-request-id: é o "código" que o usuário informa no suporte (500 ERRO_INTERNO).
   app.addHook('onSend', async (req, rep) => {
@@ -236,6 +248,7 @@ export function buildApp(opcoes = {}) {
   app.register(rotasInteracoes, { pool }); // bloco 12
   app.register(rotasImportacoes, { pool, fila });
   app.register(rotasInterno, { pool });
+  app.register(rotasConta, { pool, fila, portalUrl }); // bloco 14 (LGPD)
 
   return app;
 }

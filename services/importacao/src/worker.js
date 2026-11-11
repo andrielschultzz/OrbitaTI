@@ -14,10 +14,12 @@ import { Worker } from 'bullmq';
 import { Redis } from 'ioredis';
 import pino from 'pino';
 import { criarClienteApi } from './api.js';
-import { criarPool } from './db.js';
+import { apagarDadosDoTenant, criarPool } from './db.js';
 import { esgotouTentativas, processarImportacao } from './processar.js';
 
 const NOME_FILA = 'importacoes'; // o mesmo da API (services/api-contatos/src/fila.js)
+// Bloco 14 (LGPD): a API pede aqui que o worker apague o schema importacao de um tenant excluído.
+const NOME_FILA_EXCLUSAO = 'exclusao-importacao'; // o mesmo da API (fila.js, NOME_FILA_EXCLUSAO_IMPORTACAO)
 // No máximo 2 importações tocam o banco ao mesmo tempo, somando TODOS os tenants (CLAUDE.md: é o que
 // substitui o intervalo de 5 min do ADR-003).
 const CONCORRENCIA = 2;
@@ -78,6 +80,30 @@ worker.on('failed', async (job, erro) => {
 });
 worker.on('error', (erro) => log.error({ err: erro.message }, 'worker: erro'));
 
+// Exclusão de tenant (bloco 14, achado B1). Database-per-service: o job diário da API apaga o schema orbita
+// e pede, por esta fila, que o worker apague o schema importacao do mesmo tenant. O payload só tem o
+// tenant_id (nenhum dado pessoal). concurrency 1: é raro e não tem pressa.
+const workerExclusao = new Worker(
+  NOME_FILA_EXCLUSAO,
+  async (job) => {
+    const linhas = await apagarDadosDoTenant(pool, job.data.tenant_id);
+    log.info({ evento: 'importacao_dados_excluidos', tenant_id: job.data.tenant_id, linhas }, 'exclusão: schema importacao do tenant apagado');
+  },
+  { connection: redis, concurrency: 1 },
+);
+workerExclusao.on('failed', (job, erro) => {
+  if (!job) return;
+  const ultima = job.attemptsMade >= (job.opts?.attempts ?? 1);
+  // Na última tentativa, alguém precisa agir: a API já apagou o schema orbita e não vai pedir de novo.
+  // O job fica 7 dias no Redis (removeOnFail) para ser reprocessado à mão (job.retry()).
+  const nivel = ultima ? 'error' : 'warn';
+  log[nivel](
+    { evento: ultima ? 'exclusao_importacao_falhou' : undefined, tenant_id: job.data?.tenant_id, tentativa: job.attemptsMade, err: erro.message },
+    ultima ? 'exclusão: desistiu de apagar o schema importacao do tenant' : 'exclusão: tentativa falhou, vai tentar de novo',
+  );
+});
+workerExclusao.on('error', (erro) => log.error({ err: erro.message }, 'worker de exclusão: erro'));
+
 // /saude interno (sem porta publicada): healthcheck do compose e, no bloco 6, as probes do kind.
 // 200 só com banco E fila ok: sem qualquer um dos dois o worker não consegue trabalhar.
 const servidorSaude = createServer(async (req, res) => {
@@ -86,7 +112,7 @@ const servidorSaude = createServer(async (req, res) => {
     return;
   }
   const db = await pool.query('SELECT 1').then(() => 'ok', () => 'fora');
-  const fila = redis.status === 'ready' && worker.isRunning() ? 'ok' : 'fora';
+  const fila = redis.status === 'ready' && worker.isRunning() && workerExclusao.isRunning() ? 'ok' : 'fora';
   res.writeHead(db === 'ok' && fila === 'ok' ? 200 : 503, { 'content-type': 'application/json' });
   res.end(JSON.stringify({ db, fila }));
 });
@@ -101,7 +127,7 @@ for (const sinal of ['SIGTERM', 'SIGINT']) {
   process.once(sinal, async () => {
     log.info(`${sinal} recebido: encerrando`);
     servidorSaude.close();
-    await worker.close();
+    await Promise.all([worker.close(), workerExclusao.close()]);
     await pool.end();
     redis.disconnect();
     process.exit(0);

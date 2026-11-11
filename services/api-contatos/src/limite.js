@@ -5,6 +5,7 @@
 //   POST /auth/login     chave = IP + e-mail      10/min: força bruta numa conta
 //   POST /auth/cadastro  chave = IP               LIMITE_CADASTRO_POR_MIN (padrão 60)
 //   GET /auth/confirmar  chave = IP               10/min (bloco 10)
+//   GET /conta/exportacao/arquivo  chave = IP     10/min (bloco 14)
 //   /saude, /planos, /interno/*: sem limite (config.rateLimit = false; T-RL-07 confere)
 //
 // Por que roda no preHandler, e não no onRequest: o tenant só é conhecido DEPOIS da autenticação
@@ -47,6 +48,17 @@ export const limiteConfirmacao = {
   max: CONFIRMACAO_POR_MINUTO,
   timeWindow: UM_MINUTO_MS,
   keyGenerator: (req) => `confirmar:${req.ip}`,
+};
+
+/**
+ * Config de rota: GET /conta/exportacao/arquivo (bloco 14). Pública como a confirmação, por IP, 10/min.
+ * Aqui o limite pesa mais: cada chamada válida monta o JSON inteiro do tenant. No kind, vira global (K2).
+ */
+export const EXPORTACAO_LINK_POR_MINUTO = 10;
+export const limiteExportacaoLink = {
+  max: EXPORTACAO_LINK_POR_MINUTO,
+  timeWindow: UM_MINUTO_MS,
+  keyGenerator: (req) => `exportacao:${req.ip}`,
 };
 
 /** Chave do limite padrão. Rota pública sem config própria é erro de programação: falha alto (T-RL-07). */

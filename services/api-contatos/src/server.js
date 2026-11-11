@@ -4,7 +4,8 @@
 // PORTA (padrão 3000), LOG_NIVEL, TRUST_PROXY_SALTOS (padrão 1) e LIMITE_CADASTRO_POR_MIN (padrão 60).
 import { buildApp } from './app.js';
 
-const app = buildApp();
+// agendarExclusao: o job diário da LGPD (bloco 14) só roda no processo de verdade, nunca nos testes.
+const app = buildApp({ agendarExclusao: true });
 
 // SIGTERM: o Docker e o Kubernetes mandam isto ao parar o contêiner. app.close() para de aceitar
 // conexões, espera as requisições em andamento e fecha o pool (onClose), sem cortar transação no meio.

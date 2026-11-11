@@ -53,7 +53,45 @@ function confirmarCadastro({ nome, link }) {
   };
 }
 
-const TIPOS = { 'confirmar-cadastro': confirmarCadastro };
+/**
+ * Link de exportação depois do cancelamento (bloco 14). O link vale até o fim do prazo (cancelado_em + 30
+ * dias) e é o ÚNICO caminho até os dados: o login já está recusado. A data vai no fuso do Brasil.
+ */
+function exportacaoDisponivel({ nome, link, disponivel_ate: disponivelAte }) {
+  if (!textoValido(nome, 120)) throw new DadosInvalidos('nome inválido');
+  if (!textoValido(link, 4096) || !/^https?:\/\//.test(link)) throw new DadosInvalidos('link inválido');
+  const ate = new Date(disponivelAte);
+  if (Number.isNaN(ate.getTime())) throw new DadosInvalidos('data inválida');
+  const data = ate.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+
+  const nomeHtml = escaparHtml(nome);
+  const linkHtml = escaparHtml(link);
+  return {
+    subject: 'Sua conta no OrbitaTI foi cancelada: baixe seus dados',
+    text: [
+      `Olá, ${nome}!`,
+      '',
+      'A conta da sua empresa no OrbitaTI foi cancelada. Ninguém consegue mais entrar nela.',
+      `Até ${data} você ainda pode baixar todos os dados (arquivo JSON) por este link:`,
+      '',
+      link,
+      '',
+      `Depois de ${data}, todos os dados da conta são apagados de forma definitiva.`,
+      'Não repasse este link: quem o tiver consegue baixar os dados.',
+    ].join('\n'),
+    html: `<!doctype html>
+<html lang="pt-BR"><body style="font-family:Arial,sans-serif;color:#1f2937;line-height:1.5">
+<p>Olá, ${nomeHtml}!</p>
+<p>A conta da sua empresa no OrbitaTI foi cancelada. Ninguém consegue mais entrar nela.</p>
+<p>Até <strong>${data}</strong> você ainda pode baixar todos os dados (arquivo JSON):</p>
+<p><a href="${linkHtml}" style="display:inline-block;padding:10px 18px;background:#4338ca;color:#ffffff;text-decoration:none;border-radius:6px">Baixar meus dados</a></p>
+<p style="font-size:13px;color:#6b7280">Se o botão não funcionar, copie este endereço no navegador:<br>${linkHtml}</p>
+<p style="font-size:13px;color:#6b7280">Depois de ${data}, todos os dados da conta são apagados de forma definitiva. Não repasse este link: quem o tiver consegue baixar os dados.</p>
+</body></html>`,
+  };
+}
+
+const TIPOS = { 'confirmar-cadastro': confirmarCadastro, 'exportacao-disponivel': exportacaoDisponivel };
 
 /**
  * Dados do job -> {to, subject, text, html}. Lança DadosInvalidos se o job não tem como virar e-mail.

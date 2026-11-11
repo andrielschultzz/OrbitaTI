@@ -57,14 +57,18 @@ const ROTAS_SEM_ID = [
   { metodo: 'POST', caminho: '/contatos', caso: 'T-ISO-06' },
   { metodo: 'GET', caminho: '/contatos/esfriando', caso: 'T-ISO-17' },
   { metodo: 'POST', caminho: '/importacoes', caso: 'T-IMP-02' }, // tests/importacao.test.js
+  { metodo: 'GET', caminho: '/conta/exportacao', caso: 'T-ISO-18' }, // tests/lgpd.test.js (bloco 14)
+  { metodo: 'POST', caminho: '/conta/cancelamento', caso: 'T-LGPD-02' }, // tests/lgpd.test.js: só o próprio tenant
 ];
 
 // Rotas públicas (config.publica: sem token, logo sem tenant). Lista FIXA de propósito: marcar uma rota
 // como pública tira ela da autenticação E da tabela acima. Sem esta lista, esse seria um jeito de escapar
-// das duas coisas com uma linha só. GET /auth/confirmar (bloco 10) entra com rate limit por IP. Próxima:
-// /conta/exportacao/arquivo (bloco 14).
+// das duas coisas com uma linha só. GET /auth/confirmar (bloco 10) e GET /conta/exportacao/arquivo
+// (bloco 14) entram com rate limit por IP; o tenant da segunda vem do token ASSINADO do link (T-LGPD-04).
 // GET /planos (bloco 4) não tem dado de tenant: a resposta é a mesma para qualquer pessoa.
-const ROTAS_PUBLICAS = ['GET /saude', 'GET /planos', 'POST /auth/cadastro', 'POST /auth/login', 'GET /auth/confirmar'];
+const ROTAS_PUBLICAS = [
+  'GET /saude', 'GET /planos', 'POST /auth/cadastro', 'POST /auth/login', 'GET /auth/confirmar', 'GET /conta/exportacao/arquivo',
+];
 
 const chave = (r) => `${r.metodo} ${r.caminho}`;
 const comId = (rota, id) => rota.caminho.replace(':id', id);

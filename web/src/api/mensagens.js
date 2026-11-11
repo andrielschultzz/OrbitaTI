@@ -18,8 +18,11 @@ export function mensagemDeErro(erro, tela = 'geral') {
       return 'Sua sessão expirou. Entre de novo.';
     case 'NAO_ENCONTRADO':
       if (tela === 'contato') return 'Não encontramos esse contato.';
-      // /conta/* nunca devolve 404 pelo contrato: 404 ali é "o bloco 14 ainda não existe na API".
-      if (tela === 'conta') return 'Essa função ainda não está disponível.';
+      return erro.message;
+    case 'FILA_INDISPONIVEL':
+      // Contrato 1.6: o cancelamento não acontece sem o e-mail com o link de exportação (é o único caminho
+      // até os dados depois). Nada mudou na conta, então a pessoa pode tentar de novo.
+      if (tela === 'conta') return 'Não foi possível cancelar agora: o envio do link de exportação está fora do ar. Tente de novo em instantes.';
       return erro.message;
     case 'EMAIL_DUPLICADO':
       return 'Já existe um contato com esse e-mail.';
