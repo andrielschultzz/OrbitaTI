@@ -11,7 +11,13 @@ const VIDA_TOKEN_S = 60;
 const TIMEOUT_MS = 10_000;
 
 /** Erro que tentar de novo não resolve (4xx da API: importação inexistente, corpo inválido, token recusado). */
-export class ErroDefinitivo extends Error {}
+export class ErroDefinitivo extends Error {
+  /** @param {string} mensagem @param {number} [status] status HTTP da API (404 = importação desconhecida) */
+  constructor(mensagem, status) {
+    super(mensagem);
+    this.status = status;
+  }
+}
 
 const b64 = (obj) => Buffer.from(JSON.stringify(obj)).toString('base64url');
 
@@ -52,7 +58,7 @@ export function criarClienteApi({ baseUrl, segredo }) {
     if (resposta.ok) return JSON.parse(texto);
     const mensagem = `API respondeu ${resposta.status} em ${acao}: ${texto.slice(0, 200)}`;
     // 429 e 5xx podem passar; 4xx (404 = importação de outro tenant ou apagada, 400, 401) não.
-    if (resposta.status >= 400 && resposta.status < 500 && resposta.status !== 429) throw new ErroDefinitivo(mensagem);
+    if (resposta.status >= 400 && resposta.status < 500 && resposta.status !== 429) throw new ErroDefinitivo(mensagem, resposta.status);
     throw new Error(mensagem);
   }
 

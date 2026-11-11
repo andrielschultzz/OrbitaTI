@@ -12,7 +12,8 @@
 //                                  JWT de usuário aqui falha na assinatura: 401 (T-IMP-10).
 //
 // O link do e-mail de confirmação (bloco 10) também é um JWT com JWT_SEGREDO, mas com o claim
-// finalidade: "confirmar-email" e 24 h de vida. As duas portas conferem a finalidade EXPLICITAMENTE:
+// finalidade: "confirmar-email" e 24 h de vida. O link de exportação (bloco 14) segue o mesmo desenho, com
+// finalidade: "exportar-conta" e validade até cancelado_em + 30 dias (T-LGPD-04). As duas portas conferem a finalidade EXPLICITAMENTE:
 //   - aqui, todo token com "finalidade" é 401: um link de e-mail nunca vira uma sessão de 24 h (T-AUTH-11);
 //   - no GET /auth/confirmar, só "confirmar-email" vale: token de sessão não confirma e-mail (T-AUTH-12).
 // O claimsValidas abaixo também recusaria o de confirmação, por faltar plano e papel. Mas isso seria
@@ -30,6 +31,14 @@ const PAPEIS = new Set(['admin', 'consultor', 'visualizador']);
 export const FINALIDADE_CONFIRMAR_EMAIL = 'confirmar-email';
 /** Validade do link de confirmação (contrato, seção 4). */
 export const VALIDADE_CONFIRMACAO = '24h';
+/**
+ * Claim finalidade do link de exportação enviado no cancelamento (bloco 14). Mesma porta de entrada do
+ * link de confirmação: o hook abaixo recusa como sessão todo token com finalidade, e a rota
+ * GET /conta/exportacao/arquivo só aceita esta.
+ */
+export const FINALIDADE_EXPORTAR_CONTA = 'exportar-conta';
+/** Dias de exportação depois do cancelamento; depois disso o job de exclusão apaga o tenant (docs/lgpd.md). */
+export const DIAS_EXPORTACAO = 30;
 
 /** Token assinado, mas com claims fora do esperado, também é 401: nunca usar um tenant_id malformado. */
 const claimsValidas = (c) =>

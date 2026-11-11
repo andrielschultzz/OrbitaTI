@@ -11,7 +11,7 @@
 import { UnrecoverableError } from 'bullmq';
 import { ErroDefinitivo } from './api.js';
 import { CsvInvalido, fatiar, validarCsv } from './csv.js';
-import { finalizarExecucao, gravarErros, registrarExecucao } from './db.js';
+import { apagarDaImportacao, finalizarExecucao, gravarErros, registrarExecucao } from './db.js';
 
 export const esperar = (ms) => new Promise((ok) => setTimeout(ok, ms));
 
@@ -48,6 +48,14 @@ export async function processarImportacao(job, { pool, api, lote, pausaMs, log, 
     await finalizarExecucao(pool, tenantId, { ...execucao, status: 'erro' }).catch((e) =>
       log.error({ err: e }, 'importacao: falha ao registrar execucao'),
     );
+    // 404: a API não conhece esta importação (tenant excluído pela LGPD, bloco 14). O que este job acabou de
+    // gravar no schema do worker é lixo de um tenant que não existe mais: apaga.
+    if (erro instanceof ErroDefinitivo && erro.status === 404) {
+      await apagarDaImportacao(pool, tenantId, importacaoId).catch((e) =>
+        log.error({ err: e }, 'importacao: falha ao apagar os dados de uma importação desconhecida'),
+      );
+      log.warn({ evento: 'importacao_desconhecida' }, 'importacao: a API não conhece esta importação; dados do worker apagados');
+    }
     // CSV ilegível ou 4xx da API: tentar de novo daria o mesmo resultado. UnrecoverableError faz o
     // BullMQ desistir já, sem gastar as outras tentativas (e o worker.js chama /falha).
     if (erro instanceof CsvInvalido || erro instanceof ErroDefinitivo) throw new UnrecoverableError(erro.message);

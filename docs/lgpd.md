@@ -2,7 +2,7 @@
 
 **Unidade:** Andriel Schultz e Cristofer Mateus Rutzen
 **Etapa 1 — Proposta de arquitetura**
-**Status:** preliminar — aprofundado na Etapa 3
+**Status:** preliminar — aprofundado na Etapa 3. **Revisão de 10/11/2026 (bloco 14):** exportação, cancelamento e exclusão em 30 dias implementados; ver "Como está implementado" e a tabela "A implementar"
 
 > Documento de arquitetura, não parecer jurídico. As bases legais indicadas são a leitura técnica da equipe e devem ser validadas por profissional da área antes de o produto entrar em produção com clientes reais.
 
@@ -35,6 +35,8 @@ Há uma exceção: para os dados dos **usuários** do tenant — quem faz login,
 |---|---|---|---|---|
 | Nome e e-mail | Usuário | Identificação e autenticação | Execução de contrato — art. 7º, V | Vida da conta + 30 dias |
 | Nome, e-mail e link de confirmação no job da fila `emails` (bloco 10) | Usuário | Enviar o e-mail de confirmação do cadastro | Execução de contrato — art. 7º, V | **Até o envio** (`removeOnComplete`); se o envio falhar de vez, **24 h** (`removeOnFail`), o mesmo prazo de validade do link |
+| Nome, e-mail e link de exportação no job da fila `emails` (bloco 14) | Usuário (o admin que cancelou) | Enviar o link de exportação depois do cancelamento | Execução de contrato — art. 7º, V | **Até o envio** (`removeOnComplete`); se o envio falhar de vez, **24 h** (`removeOnFail`). O link em si vale até `cancelado_em + 30 dias` |
+| Id do tenant no job da fila `exclusao-importacao` (bloco 14) | — (não é dado pessoal) | Pedir ao Serviço de Importação que apague o schema dele | — | Até o fim do job; se falhar de vez, 7 dias para reprocessar |
 | Data de confirmação do e-mail (`usuarios.email_confirmado_em`) | Usuário | Saber se o endereço é da pessoa | Execução de contrato — art. 7º, V | Vida da conta |
 | Senha (hash Argon2id) | Usuário | Autenticação | Execução de contrato — art. 7º, V | Vida da conta |
 | Logs de acesso — IP, data/hora, ação | Usuário | Segurança, auditoria e investigação de incidente | Obrigação legal — art. 7º, II, c/c Marco Civil art. 15 | **6 meses** |
@@ -70,16 +72,49 @@ O tenant passa por cinco fases — assinar, configurar, usar, crescer e sair. A 
 | **Assinar** | Criação do tenant e do usuário admin. Dados mínimos: nome, e-mail, senha |
 | **Configurar / usar** | Tenant insere contatos. A partir daqui o OrbitaTI trata dado de terceiro como operador |
 | **Crescer** | Volume aumenta; papéis e permissões se diferenciam |
-| **Cancelar** | Conta entra em modo somente leitura. **Exportação completa em CSV e JSON disponível por 30 dias** |
-| **Excluir** | Após 30 dias, exclusão definitiva: `DELETE` em cascata por `tenant_id` + remoção do prefixo no armazenamento de objetos (o armazenamento está adiado, ver [ADR-004](adr/adr-004-comunicacao-entre-servicos.md)). Logs de acesso sobrevivem os 6 meses do Marco Civil, desvinculados do conteúdo |
+| **Cancelar** | O login passa a ser recusado (o token já emitido vale até expirar, no máximo 15 min). **Exportação completa em JSON disponível por 30 dias**, por um link enviado por e-mail ao admin. *Revisão do bloco 14:* o desenho original dizia "modo somente leitura" e "CSV e JSON". Ficou mais simples: sem login não há leitura, e o formato é o do contrato (JSON, seção 9 de [`contrato-api.md`](contrato-api.md)). Quem precisar de CSV no formato do modelo de importação tem o `scripts/restaurar-um-tenant.ps1` (bloco 11, uso do operador) |
+| **Excluir** | Após 30 dias, exclusão definitiva por um job diário: cada serviço apaga o próprio schema (`orbita` pela API, `importacao` pelo worker), sempre com o tenant fixado e sob RLS. O armazenamento de objetos está adiado ([ADR-004](adr/adr-004-comunicacao-entre-servicos.md)), então não há prefixo para remover. Logs de acesso sobrevivem os 6 meses do Marco Civil, desvinculados do conteúdo: o log da exclusão leva só o `tenant_id` e quantas linhas saíram de cada tabela |
 
 O prazo de 30 dias é declarado no contrato e implementado como job agendado, não como tarefa manual. **Exclusão que depende de alguém lembrar não é medida de segurança.**
 
-**O cascade não alcança o schema `importacao`** (achados B1 e I9, revisão de 08/11/2026). As tabelas de `orbita` apagam em cascata a partir de `orbita.tenants`, mas as de `importacao` não têm chave estrangeira para lá: é a fronteira entre os serviços, e o papel `importacao_svc` não enxerga `orbita`.
+**O cascade não alcança o schema `importacao`** (achados B1 e I9, revisão de 08/11/2026; **resolvido no bloco 14**). As tabelas de `orbita` apagam em cascata a partir de `orbita.tenants`, mas as de `importacao` não têm chave estrangeira para lá: é a fronteira entre os serviços, e o papel `importacao_svc` não enxerga `orbita`.
 
-- **O que a exclusão precisa apagar também:** `importacao.execucoes` e `importacao.erros_linha` do tenant, como `importacao_svc` e com o tenant fixado. O `motivo` de um erro de linha pode citar dado do contato, então deixá-lo ali depois dos 30 dias contraria a LGPD.
-- **Jobs pendentes:** é preciso remover da fila os jobs do tenant, ou apagar `importacao.*` só depois que eles terminarem. Um job de um tenant já apagado ainda grava em `importacao.execucoes`.
-- **Quando:** no bloco 14, coberto pelo T-LGPD-03.
+- **Como ficou:** a API pede pela fila `exclusao-importacao` que o worker apague `importacao.execucoes` e `importacao.erros_linha` do tenant, como `importacao_svc` e com o tenant fixado. Só depois de o pedido entrar na fila a API apaga `orbita`. Coberto pelo T-LGPD-03.
+- **Jobs pendentes:** não sobram jobs de importação do tenant quando a exclusão roda. O token de sessão morre no máximo 15 min depois do cancelamento (nenhuma importação nova), e job falho some do Redis em 24 h; a exclusão só vem 30 dias depois. Para o caso extremo (worker parado por semanas e um job velho rodando depois da exclusão), o worker apaga o que acabou de gravar quando a API responde 404 para a importação (teste unitário em `services/importacao/test/processar.test.js`).
+
+### Como está implementado (bloco 14, 10/11/2026)
+
+| Parte | Onde | Como | Testes |
+|---|---|---|---|
+| Exportação pelo Portal | `GET /conta/exportacao` (`services/api-contatos/src/rotas/conta.js`), botão "Exportar meus dados" em Conta | Só `admin` (outro papel: 403). Um `withTenant` lê as cinco partes com colunas explícitas: nunca `senha_hash` | T-LGPD-01, T-ISO-18, E2E `web/e2e/conta.spec.js` |
+| Cancelamento | `POST /conta/cancelamento`, botão "Cancelar conta" (digitar CANCELAR) | Grava `cancelado_em` e enfileira o e-mail com o link **na mesma transação**: fila fora → 503 e nada muda. O login passa a ser recusado pela `buscar_credencial` | T-LGPD-02, T-LGPD-05 |
+| Link de exportação | `GET /conta/exportacao/arquivo?token=` (pública, 10/min por IP); e-mail montado em `services/notificacoes/src/mensagens.js` | JWT com `finalidade: "exportar-conta"`, vence em `cancelado_em + 30 dias`. Não serve como sessão, e a sessão não serve como link. Fora do log | T-LGPD-04, T-OBS-04 |
+| Lista de quem excluir | `orbita.tenants_para_excluir()` (`db/migrations/004_exclusao.sql`) | `SECURITY DEFINER`, dona `orbita_auth`, `EXECUTE` só para `api_contatos`. Devolve **só ids** cancelados há mais de 30 dias | T-RLS-19, T-RLS-21 |
+| Job diário | `services/api-contatos/src/exclusao.js` | Agendador do BullMQ com id fixo (`exclusao-diaria`, 3 h, fuso de São Paulo): com 2 réplicas da API, roda uma vez. Para cada id: enfileira o pedido ao worker e, só se conseguiu, apaga `orbita` tabela por tabela com `withTenant`. Fila fora: adia para o dia seguinte, sem apagar nada | T-LGPD-03 |
+| Schema `importacao` | `services/importacao/src/worker.js` e `db.js` (`apagarDadosDoTenant`) | O próprio worker apaga, como `importacao_svc`, com o tenant fixado (database-per-service: a API nunca toca esse schema) | T-LGPD-03 |
+| Execução manual | `docker compose exec api-contatos node src/excluir-agora.js` (no kind: `kubectl -n orbitati exec deploy/api-contatos -- node src/excluir-agora.js`) | A mesma função do job, com a fila de verdade. Para a demonstração e para o operador | Conferido em 10/11/2026: tenant cancelado há 31 dias, 1 linha em cada tabela dos dois schemas antes, 0 depois |
+
+**Como demonstrar sem esperar 30 dias:** cancelar uma conta pelo Portal, mudar a data como `migrador`
+(`UPDATE orbita.tenants SET cancelado_em = now() - interval '31 days'`, com o `app.tenant_id` do tenant fixado,
+que é o que o T-LGPD-03 faz pelo `comoDono`) e rodar a execução manual. O link do e-mail passa a responder
+"Este link é inválido ou venceu."
+
+**Limitações conhecidas (declaradas, não escondidas):**
+
+- **A exportação não inclui `importacao.erros_linha`.** Esses erros (número da linha e motivo, que pode citar
+  o dado da planilha) são do schema do Serviço de Importação, e a API não lê esse schema (regra 10). Incluir
+  exigiria uma rota interna do worker só para isso. O tenant ainda tem a própria planilha, que é a origem desses
+  dados, e os erros são apagados junto com o resto na exclusão.
+- **Os 15 minutos depois do cancelamento.** O token já emitido continua valendo até expirar (sem denylist):
+  nesse tempo, quem estava logado ainda pode ler e gravar. O Portal sai da conta logo depois de cancelar.
+- **Falha definitiva ao apagar o schema `importacao`.** O pedido tenta 10 vezes (espera exponencial a partir
+  de 30 s, cobre horas de indisponibilidade). Se mesmo assim falhar, o worker registra
+  `evento: "exclusao_importacao_falhou"` e o job fica 7 dias no Redis para alguém reprocessar à mão: a API já
+  apagou `orbita` e não vai pedir de novo.
+- **A exportação é montada em memória.** Para o tamanho do produto (até 10 usuários, contatos na casa dos
+  milhares) cabe com folga. Um tenant muito maior pediria streaming do JSON.
+- **No kind local, o limite de 10/min por IP do link vira global** (todos os clientes chegam com o mesmo IP
+  interno): K2 em [`pendencias-bloco-7.md`](pendencias-bloco-7.md). No compose, modelo da VM, o IP real chega.
 
 ---
 
@@ -103,16 +138,18 @@ O prazo de 30 dias é declarado no contrato e implementado como job agendado, n�
 ### A implementar até a Etapa 3
 
 > **Revisão de 08/11/2026:** os três itens marcados originalmente para a Etapa 2 não entraram nela (a Etapa 2 priorizou o núcleo multi-tenant) e foram remarcados para o bloco 14, na Etapa 4.
+>
+> **Revisão de 10/11/2026 (bloco 14):** os três foram feitos. Detalhes em "Como está implementado".
 
-| Medida | Prazo |
-|---|---|
-| Contrato de operador (DPA) no termo de uso, com instruções de tratamento | Esboço de uma página no bloco 14 (Etapa 4) |
-| Exportação self-service pelo Portal Web (o contrato define JSON, seção 9 de [`contrato-api.md`](contrato-api.md)) | Bloco 14 (Etapa 4) |
-| Job de exclusão automática 30 dias após cancelamento | Bloco 14 (Etapa 4) |
-| Registro de operações de tratamento — art. 37 | Etapa 3 |
-| Procedimento de resposta a incidente com prazo de comunicação à ANPD | Etapa 3 |
-| Alerta de dado sensível em campo livre | Etapa 3 |
-| Relatório de impacto (RIPD) | Etapa 4 |
+| Medida | Prazo | Estado |
+|---|---|---|
+| Contrato de operador (DPA) no termo de uso, com instruções de tratamento | Esboço de uma página no bloco 14 (Etapa 4) | ✅ **Esboço feito:** [`dpa-esboco.md`](dpa-esboco.md). Falta a revisão jurídica e entrar no termo de uso antes do primeiro cliente real |
+| Exportação self-service pelo Portal Web (o contrato define JSON, seção 9 de [`contrato-api.md`](contrato-api.md)) | Bloco 14 (Etapa 4) | ✅ **Feito:** `GET /conta/exportacao` e o link de 30 dias depois do cancelamento (`rotas/conta.js`); botões em Conta no Portal. T-LGPD-01, 04 e 05, T-ISO-18 |
+| Job de exclusão automática 30 dias após cancelamento | Bloco 14 (Etapa 4) | ✅ **Feito:** `orbita.tenants_para_excluir()` (migração 004) + job diário do BullMQ (`exclusao.js`) + worker de importação apagando o próprio schema. T-LGPD-03, T-RLS-19 e 21 |
+| Registro de operações de tratamento — art. 37 | Etapa 3 | Pendente |
+| Procedimento de resposta a incidente com prazo de comunicação à ANPD | Etapa 3 | Pendente |
+| Alerta de dado sensível em campo livre | Etapa 3 | Pendente |
+| Relatório de impacto (RIPD) | Etapa 4 | Pendente |
 
 ---
 
@@ -138,7 +175,7 @@ Esse fluxo precisa estar no termo de uso antes do primeiro cliente real.
 | R1 | Vazamento entre tenants por falha de isolamento | **Crítico** — dado de terceiro exposto, incidente comunicável à ANPD | Baixa | RLS com `FORCE`, suíte CQ-02 a cada deploy, ponto único de acesso ao banco |
 | R2 | Dado sensível digitado em campo livre | Alto — tratamento sem base legal adequada | **Média** | Aviso no campo, cláusula contratual, detecção na Etapa 3 |
 | R3 | Tenant cadastra contatos sem base legal válida | Alto — mas a responsabilidade é do controlador | Média | Contrato de operador explicitando a obrigação do tenant |
-| R4 | Retenção indefinida após cancelamento | Médio — art. 16 exige eliminação após a finalidade | Baixa | Job automático de exclusão em 30 dias |
+| R4 | Retenção indefinida após cancelamento | Médio — art. 16 exige eliminação após a finalidade | Baixa | Job automático de exclusão em 30 dias (**implementado no bloco 14**, T-LGPD-03) |
 | R5 | Vazamento da chave de assinatura do JWT | **Crítico** — permite forjar acesso a qualquer tenant | Baixa | Chave em gerenciador de segredos fora do repositório, rotação semestral |
 | R6 | PDF de proposta acessível por URL adivinhável | Alto — expõe dado de contato e valores | Baixa | URL assinada com validade curta; prefixo por tenant; sem listagem pública |
 
@@ -164,6 +201,8 @@ Esse fluxo precisa estar no termo de uso antes do primeiro cliente real.
 | Decisão de pool e o risco que ela cria | [`adr/adr-001-tenancy.md`](adr/adr-001-tenancy.md) |
 | Isolamento como cenário verificável | [`atributos.md#cq-02`](atributos.md#cq-02) |
 | Integridade e recuperação | [`atributos.md#cq-05`](atributos.md#cq-05) |
+| Exportação, cancelamento e link (formatos) | [`contrato-api.md`](contrato-api.md), seções 4 e 9 |
+| Contrato de operador (esboço) | [`dpa-esboco.md`](dpa-esboco.md) |
 
 **Referência:** BRASIL. Lei nº 13.709, de 14 de agosto de 2018 — Lei Geral de Proteção de Dados Pessoais.
 

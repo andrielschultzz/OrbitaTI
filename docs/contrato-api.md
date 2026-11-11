@@ -1,11 +1,12 @@
 # Contrato HTTP da API de Contatos
 
-**Versão:** 1.5 — 09/11/2026, derivada do `CLAUDE.md` e dos blocos 2, 4, 5, 10, 12 e 14.
+**Versão:** 1.6 — 10/11/2026, derivada do `CLAUDE.md` e dos blocos 2, 4, 5, 10, 12 e 14.
 Mudanças da 1.1 (Fase 0 do bloco 13): `GET /planos/atual` virou `GET /planos` pública; dados extras de erro no nível de cima; lacuna dos papéis declarada.
 Mudanças da 1.2 (bloco 4): e-mail repetido no CSV vira erro de linha (o simulador mudou junto); separador decidido pelo cabeçalho; reimportação não apaga dado com célula vazia; respostas, limites e erros das rotas `/interno` definidos (seção 8). Nenhuma rota usada pelo Portal mudou de formato.
 Mudanças da 1.3 (bloco 7): headers `x-ratelimit-*` documentados na seção 1 (já eram enviados desde o bloco 5); decisões da seção 11 registradas no ADR-004. Nenhum formato mudou.
 Mudanças da 1.4 (bloco 10): `GET /auth/confirmar` implementada, com rate limit de 10/min por IP; todo token ruim (ausente, vencido, adulterado, de sessão) é `LINK_INVALIDO`, nunca `VALIDACAO`; o cadastro passa a enfileirar o e-mail de confirmação. Nenhum formato mudou.
 Mudanças da 1.5 (bloco 12): seções 5 e 6 implementadas na API. Detalhes fechados (o simulador mudou junto): desempate por `id` na ordem do "esfriando" e da lista de interações; `nota` só com espaços vira `null`; `ocorrida_em` retroativo permitido sem limite; `usuario_id` vem do token. Nenhum formato mudou.
+Mudanças da 1.6 (bloco 14): seções 4 e 9 implementadas na API. **Novo erro:** `POST /conta/cancelamento` responde `503 FILA_INDISPONIVEL` quando não consegue enfileirar o e-mail com o link, e nesse caso **não cancela** (o simulador e o Portal mudaram junto). Detalhes fechados: o link vale até `cancelado_em + 30 dias` (não 30 dias a partir do pedido); cancelar de novo devolve as mesmas datas e manda um e-mail novo; o link tem rate limit de 10/min por IP; depois da exclusão do tenant, o link responde `400 LINK_INVALIDO`; a lista de campos de cada parte da exportação. Nenhum formato de sucesso mudou.
 
 ## Para que serve
 
@@ -38,7 +39,7 @@ Mudanças da 1.5 (bloco 12): seções 5 e 6 implementadas na API. Detalhes fecha
 
     | Header | Significado |
     |---|---|
-    | `x-ratelimit-limit` | Limite da janela de 1 min que vale para esta requisição: 60 ou 600 por tenant (plano), 10 no login, `LIMITE_CADASTRO_POR_MIN` no cadastro, 10 na confirmação de e-mail |
+    | `x-ratelimit-limit` | Limite da janela de 1 min que vale para esta requisição: 60 ou 600 por tenant (plano), 10 no login, `LIMITE_CADASTRO_POR_MIN` no cadastro, 10 na confirmação de e-mail, 10 no link de exportação |
     | `x-ratelimit-remaining` | Quantas requisições ainda cabem nesta janela |
     | `x-ratelimit-reset` | Segundos até a janela recomeçar |
 
@@ -77,9 +78,9 @@ Mudanças da 1.5 (bloco 12): seções 5 e 6 implementadas na API. Detalhes fecha
 | 422 | `CSV_VAZIO` | CSV sem nenhuma linha de dados | O arquivo não tem nenhum contato. |
 | 422 | `CSV_SEM_COLUNAS` | Cabeçalho sem a coluna `nome` ou sem a coluna `email` | A primeira linha precisa ter as colunas nome e email. |
 | 422 | `LINHAS_ACIMA_DO_PLANO` | Mais linhas do que o plano permite. Traz `limite` e `linhas` | Seu plano permite até {limite} linhas por importação. |
-| 429 | `LIMITE_REQUISICOES` | Rate limit por tenant, de login (IP + e-mail), de cadastro (IP) ou de confirmação de e-mail (IP). Com `Retry-After` | Muitas ações seguidas. Tente de novo em instantes. |
+| 429 | `LIMITE_REQUISICOES` | Rate limit por tenant, de login (IP + e-mail), de cadastro (IP), de confirmação de e-mail (IP) ou do link de exportação (IP). Com `Retry-After` | Muitas ações seguidas. Tente de novo em instantes. |
 | 429 | `IMPORTACOES_SIMULTANEAS` | Já existem 2 (Individual) ou 5 (Equipe) importações `na_fila` ou `processando`. Traz `limite` | Você já tem importações em andamento. Aguarde uma terminar. |
-| 503 | `FILA_INDISPONIVEL` | Redis fora no `POST /importacoes` | Importação indisponível no momento. O restante do sistema segue funcionando. |
+| 503 | `FILA_INDISPONIVEL` | Redis fora no `POST /importacoes`, ou no `POST /conta/cancelamento` (1.6; nesse caso a conta **não** é cancelada) | Importação indisponível no momento. O restante do sistema segue funcionando. / No cancelamento: Não foi possível cancelar agora: o envio do link de exportação está fora do ar. Tente de novo em instantes. |
 | 500 | `ERRO_INTERNO` | Qualquer erro não previsto | Erro interno. Se continuar, informe o código {x-request-id}. |
 
 ---
@@ -136,9 +137,11 @@ Mudanças da 1.5 (bloco 12): seções 5 e 6 implementadas na API. Detalhes fecha
 
 ### `GET /conta/exportacao/arquivo?token=` — bloco 14
 
-- Link assinado que vai no e-mail de cancelamento, válido por 30 dias. O endereço é `${PORTAL_URL}/api/conta/exportacao/arquivo?token=...`.
+- Link assinado que vai no e-mail de cancelamento. O endereço é `${PORTAL_URL}/api/conta/exportacao/arquivo?token=...`.
+- **Token:** JWT assinado pela API com `JWT_SEGREDO` e `finalidade: "exportar-conta"`, com `sub` (o admin que cancelou) e `tenant_id`. Vence em **`cancelado_em + 30 dias`**, o mesmo instante em que o tenant passa a poder ser excluído: pedir o link de novo no 10º dia não estende o prazo. Como no bloco 10, as duas portas recusam explicitamente: este token nas rotas autenticadas dá **401**, e o token de sessão (ou o de confirmação de e-mail) aqui dá **400** (T-LGPD-04).
 - **Sucesso:** devolve o mesmo JSON de `GET /conta/exportacao`, com `Content-Disposition: attachment`. O navegador baixa o arquivo direto.
-- **Erro:** 400 `LINK_INVALIDO`.
+- **Erro:** 400 `LINK_INVALIDO` para qualquer token que não sirva (ausente, maior que 2 KB, vencido, adulterado, de outra finalidade) **e também depois da exclusão do tenant** (T-LGPD-03). 429 `LIMITE_REQUISICOES` acima de 10 por minuto por IP: cada chamada válida monta o JSON inteiro do tenant.
+- **Log:** o `?token=` vira `[oculto]` na API e o nginx registra só o caminho (T-OBS-04): o link vale como credencial por até 30 dias.
 
 ---
 
@@ -341,12 +344,23 @@ Mudanças da 1.5 (bloco 12): seções 5 e 6 implementadas na API. Detalhes fecha
 
 - **`GET /conta/exportacao`**
   - **Sucesso:** `200`, JSON com `Content-Disposition: attachment; filename="orbitati-exportacao-AAAA-MM-DD.json"`.
-  - **Conteúdo:** `{"tenant": {...}, "usuarios": [...sem senha_hash], "contatos": [...], "interacoes": [...], "importacoes": [...]}`.
+  - **Conteúdo:** `{"tenant": {...}, "usuarios": [...sem senha_hash], "contatos": [...], "interacoes": [...], "importacoes": [...]}`. É a exceção da regra "nenhuma resposta devolve `tenant_id`": o `tenant.id` vem, porque o dado é do próprio tenant.
+
+    | Parte | Campos |
+    |---|---|
+    | `tenant` | `id`, `nome`, `plano`, `criado_em`, `cancelado_em` |
+    | `usuarios` | `id`, `nome`, `email`, `papel`, `criado_em`, `email_confirmado_em` (nunca `senha_hash`, T-LGPD-01) |
+    | `contatos` | os do Objeto Contato (seção 5) |
+    | `interacoes` | `id`, `contato_id`, `usuario_id`, `tipo`, `nota`, `ocorrida_em`, `criado_em` |
+    | `importacoes` | os de `GET /importacoes/:id`, mais `usuario_id` |
+
+  - **Fora da exportação:** os erros de linha das importações (`importacao.erros_linha`). São do schema do Serviço de Importação, que a API não lê (regra 10). Limitação registrada em [`lgpd.md`](lgpd.md); esses erros são apagados junto na exclusão do tenant.
   - **Erro:** 403 `SEM_PERMISSAO` para quem não é admin.
 - **`POST /conta/cancelamento`**
   - **Sucesso:** `200 {"cancelado_em": "...", "exportacao_disponivel_ate": "..."}`, sendo a segunda data o cancelamento + 30 dias.
-  - **Efeitos:** a partir daí o login responde 401. O token já emitido vale até expirar (no máximo 15 min, sem denylist), por isso o Portal sai da conta logo depois de cancelar.
-  - **Erro:** 403.
+  - **Efeitos:** a partir daí o login responde 401. O token já emitido vale até expirar (no máximo 15 min, sem denylist), por isso o Portal sai da conta logo depois de cancelar. O admin recebe por e-mail o link de exportação (seção 4).
+  - **Cancelar de novo** (com o token ainda válido): devolve **as mesmas datas** e manda **outro e-mail** com o link. É o jeito de pedir o link de novo. Cada pedido gera um job com id novo, para que um envio que falhou e ficou no Redis não engula o pedido seguinte (o problema da N9). A trava contra clique duplo fica no botão do Portal.
+  - **Erros:** 403 `SEM_PERMISSAO`; **503 `FILA_INDISPONIVEL`** (1.6) quando o e-mail não pode ser enfileirado. Nesse caso a conta **não** é cancelada: o e-mail entra na mesma transação do cancelamento, porque depois de cancelar o link é o único caminho até os dados (o login já não funciona).
 
 ---
 
@@ -382,4 +396,7 @@ Registradas no [ADR-004](adr/adr-004-comunicacao-entre-servicos.md) (bloco 7). S
 | `GET /planos` público, com preço em centavos, sem rate limit | O cadastro mostra os planos antes de existir token; o Portal mostra preços e limites sem duplicar o `planos.js`; a rota só lê memória, então o rate limit custaria mais que ela |
 | Dados extras de erro (`limite`, `linhas`) no nível de cima | Um só formato para o Portal ler, sem objeto aninhado |
 | Papéis tratados igual, menos `/conta/*` | Lacuna declarada (seção 10), decidida junto com o convite de usuários |
+| Cancelamento com a fila fora → 503, sem cancelar (1.6) | No cadastro o e-mail é opcional (o login não exige confirmação). No cancelamento não: sem o link, a pessoa perde o acesso aos próprios dados |
+| Link de exportação vence em `cancelado_em + 30 dias` (1.6) | O link nunca sobrevive à exclusão do tenant, e um reenvio não estende o prazo |
+| `jobId` novo a cada pedido de link (1.6) | Com id fixo, um envio falho (24 h no Redis) faria o BullMQ ignorar o pedido seguinte em silêncio (N9) |
 | `PORTAL_URL` nos links de e-mail | Os links funcionam local e na VM sem mudar código |

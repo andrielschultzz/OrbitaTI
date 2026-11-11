@@ -170,6 +170,9 @@ export function buildSimulador({
     ajv: { customOptions: { allErrors: true, removeAdditional: true } },
   });
 
+  // E-mails que a API mandaria (o simulador não tem fila): os testes leem o link daqui.
+  app.decorate('emailsSimulados', []);
+
   const timers = new Set();
   const agendar = (fn, ms) => {
     const t = setTimeout(() => {
@@ -701,23 +704,34 @@ export function buildSimulador({
     return enviarExportacao(rep, req.usuario.tenant_id);
   });
 
+  // Contrato 1.6: com a fila de e-mail fora (SIM_FILA=fora), 503 e NADA muda. O link é o único caminho até os
+  // dados depois do cancelamento, então a API não cancela sem conseguir mandá-lo.
   app.post('/conta/cancelamento', async (req) => {
     exigirAdmin(req);
+    if (fila === 'fora') {
+      throw new ErroContrato(503, 'FILA_INDISPONIVEL', {
+        erro: 'Não foi possível cancelar agora: o envio do link de exportação está fora do ar. Tente de novo em instantes.',
+      });
+    }
     const t = estado.tenants.get(req.usuario.tenant_id);
     t.cancelado_em ??= new Date().toISOString();
     const ate = new Date(Date.parse(t.cancelado_em) + 30 * DIA).toISOString();
     const iat = Math.floor(Date.now() / 1000);
-    const tokenExportacao = assinar({ tenant: t.id, finalidade: 'exportacao', iat, exp: Math.floor(Date.parse(ate) / 1000) });
-    req.log.info(`[e-mail simulado] exportação: ${portalUrl}/api/conta/exportacao/arquivo?token=${tokenExportacao}`);
+    // Mesmo desenho da API: finalidade "exportar-conta" e validade até cancelado_em + 30 dias.
+    const tokenExportacao = assinar({ sub: req.usuario.sub, tenant_id: t.id, finalidade: 'exportar-conta', iat, exp: Math.floor(Date.parse(ate) / 1000) });
+    const link = `${portalUrl}/api/conta/exportacao/arquivo?token=${tokenExportacao}`;
+    app.emailsSimulados.push({ tipo: 'exportacao-disponivel', tenant_id: t.id, link });
+    req.log.info(`[e-mail simulado] exportação: ${link}`);
     return { cancelado_em: t.cancelado_em, exportacao_disponivel_ate: ate };
   });
 
   app.get('/conta/exportacao/arquivo', publica, async (req, rep) => {
+    consumir(`exportacao:${ipDe(req)}`, 10); // 10/min por IP, como na API
     const claims = verificar(req.query?.token);
-    if (claims?.finalidade !== 'exportacao' || !estado.tenants.has(claims.tenant)) {
+    if (claims?.finalidade !== 'exportar-conta' || !estado.tenants.has(claims.tenant_id)) {
       throw new ErroContrato(400, 'LINK_INVALIDO');
     }
-    return enviarExportacao(rep, claims.tenant);
+    return enviarExportacao(rep, claims.tenant_id);
   });
 
   return app;

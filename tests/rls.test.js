@@ -1,4 +1,4 @@
-// Isolamento no banco (RLS): T-RLS-01 a T-RLS-20 do docs/plano-de-testes.md, seção 2.1.
+// Isolamento no banco (RLS): T-RLS-01 a T-RLS-21 do docs/plano-de-testes.md, seção 2.1.
 //
 // Conecta DIRETO no Postgres com cada papel, como a API e o worker farão, e prova que o isolamento
 // é do banco e não depende do código. Os testes rodam no host (Windows): a conexão é 127.0.0.1:5432,
@@ -322,17 +322,50 @@ describe('guardas para objetos futuros', () => {
     expect(foraDaRegra.map((r) => r.tabela)).toEqual([]);
   });
 
-  it('T-RLS-19: nenhuma função SECURITY DEFINER de orbita é executável por PUBLIC ou importacao_svc; só buscar_credencial, e só pela API', async () => {
+  // Bloco 14: tenants_para_excluir entrou na lista. A regra que importa não mudou: nenhuma função que
+  // ignora o RLS fica aberta para PUBLIC ou para o worker, e toda ela é do orbita_auth (o único BYPASSRLS).
+  it('T-RLS-19: nenhuma função SECURITY DEFINER de orbita é executável por PUBLIC ou importacao_svc; só buscar_credencial e tenants_para_excluir, só pela API, ambas do orbita_auth', async () => {
     const { rows } = await dono.query(`
-      SELECT p.oid::regprocedure::text AS funcao, p.proname,
+      SELECT p.oid::regprocedure::text AS funcao, p.proname, pg_get_userbyid(p.proowner) AS dono,
              has_function_privilege('public', p.oid, 'EXECUTE') AS publico,
              has_function_privilege('importacao_svc', p.oid, 'EXECUTE') AS worker,
              has_function_privilege('api_contatos', p.oid, 'EXECUTE') AS api
       FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
       WHERE n.nspname = 'orbita' AND p.prosecdef`);
-    expect(rows.map((r) => r.proname)).toContain('buscar_credencial');
+    expect(rows.map((r) => r.proname)).toEqual(expect.arrayContaining(['buscar_credencial', 'tenants_para_excluir']));
     expect(rows.filter((r) => r.publico || r.worker).map((r) => r.funcao)).toEqual([]);
-    expect(rows.filter((r) => r.api).map((r) => r.proname)).toEqual(['buscar_credencial']);
+    expect(rows.filter((r) => r.api).map((r) => r.proname).sort()).toEqual(['buscar_credencial', 'tenants_para_excluir']);
+    expect(rows.filter((r) => r.dono !== 'orbita_auth').map((r) => r.funcao)).toEqual([]);
+  });
+
+  // Bloco 14 (LGPD). Tudo dentro de uma transação DESFEITA: um tenant "cancelado há 31 dias" que ficasse no
+  // banco seria apagado pelo T-LGPD-03, se os dois arquivos rodassem ao mesmo tempo. A função é STABLE e roda
+  // na mesma transação, então enxerga as linhas ainda não confirmadas.
+  it('T-RLS-21: tenants_para_excluir devolve só ids cancelados há mais de 30 dias; o worker não executa', async () => {
+    const vencido = randomUUID();
+    const recente = randomUUID();
+    await api.query('BEGIN');
+    try {
+      for (const [id, dias] of [[vencido, 31], [recente, 29]]) {
+        await api.query("SELECT set_config('app.tenant_id', $1, true)", [id]);
+        await api.query(
+          `INSERT INTO orbita.tenants (id, nome, plano, cancelado_em) VALUES ($1, 'Cancelada', 'individual', now() - make_interval(days => $2))`,
+          [id, dias],
+        );
+      }
+      // Sem tenant fixado: a função não depende do app.tenant_id.
+      await api.query("SELECT set_config('app.tenant_id', '', true)");
+      const { rows, fields } = await api.query('SELECT * FROM orbita.tenants_para_excluir()');
+      const ids = rows.map((r) => r.tenants_para_excluir);
+      expect(fields.map((f) => f.name)).toEqual(['tenants_para_excluir']); // só o id, nada mais
+      expect(ids).toContain(vencido);
+      expect(ids).not.toContain(recente);
+      expect(ids).not.toContain(A.id); // ativo
+      expect(ids).not.toContain(C.id); // cancelado agora
+    } finally {
+      await api.query('ROLLBACK');
+    }
+    await expect(worker.query('SELECT * FROM orbita.tenants_para_excluir()')).rejects.toMatchObject({ code: '42501' });
   });
 
   it('T-RLS-19: função NOVA criada pelo migrador já nasce sem EXECUTE para PUBLIC (privilégio padrão)', async () => {

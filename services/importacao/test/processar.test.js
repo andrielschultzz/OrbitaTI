@@ -15,13 +15,13 @@ function poolFalso() {
   return { queries, connect: async () => cliente };
 }
 
-function cenario({ respostasLote = [], falhaNoLote } = {}) {
+function cenario({ respostasLote = [], falhaNoLote, statusFalha = 404 } = {}) {
   const chamadas = [];
   const api = {
     inicio: async (_ctx, total, invalidas) => { chamadas.push(['inicio', total, invalidas]); return { status: 'processando' }; },
     lote: async (_ctx, numero, contatos) => {
       chamadas.push(['lote', numero, contatos.length]);
-      if (falhaNoLote === numero) throw new ErroDefinitivo('API respondeu 404');
+      if (falhaNoLote === numero) throw new ErroDefinitivo('API respondeu 404', statusFalha);
       return { aplicado: respostasLote[numero - 1] ?? true };
     },
   };
@@ -69,6 +69,21 @@ describe('processarImportacao', () => {
   it('4xx da API -> UnrecoverableError (não gasta as outras tentativas)', async () => {
     const { job, deps } = cenario({ falhaNoLote: 2 });
     await expect(processarImportacao(job(csv(250)), deps)).rejects.toMatchObject({ name: 'UnrecoverableError' });
+  });
+
+  it('404 da API (tenant excluído, bloco 14): apaga o que o worker gravou desta importação', async () => {
+    const { job, deps } = cenario({ falhaNoLote: 1 });
+    await expect(processarImportacao(job(csv(50, 2)), deps)).rejects.toMatchObject({ name: 'UnrecoverableError' });
+    const deletes = deps.pool.queries.filter((q) => /^DELETE FROM importacao\.(erros_linha|execucoes) WHERE importacao_id/.test(q.sql));
+    // O primeiro DELETE de erros_linha é o do gravarErros (refaz os erros); os dois últimos são a limpeza.
+    expect(deletes.slice(-2).map((q) => q.sql.split(' ')[2])).toEqual(['importacao.erros_linha', 'importacao.execucoes']);
+    expect(deletes.every((q) => q.params[0] === IMP)).toBe(true);
+  });
+
+  it('400 da API: desiste, mas NÃO apaga nada (a importação existe)', async () => {
+    const { job, deps } = cenario({ falhaNoLote: 1, statusFalha: 400 });
+    await expect(processarImportacao(job(csv(50)), deps)).rejects.toMatchObject({ name: 'UnrecoverableError' });
+    expect(deps.pool.queries.filter((q) => /^DELETE FROM importacao\.execucoes/.test(q.sql))).toEqual([]);
   });
 
   it('CSV ilegível -> UnrecoverableError, e nem chama a API', async () => {

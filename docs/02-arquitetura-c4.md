@@ -296,13 +296,13 @@ flowchart TB
 
 | Container | Estado | Onde está | Como respeita o limite de tenant | Prova |
 |---|---|---|---|---|
-| **API de Contatos** | Implementado | `services/api-contatos/` | `tenant_id` só do JWT; todo acesso a dado de tenant em `withTenant`; 404 para recurso de outro tenant | T-ISO-01 a 15 e 19, `scripts/demo-isolamento.ps1` |
-| **Serviço de Importação** | Implementado | `services/importacao/` | Recebe o tenant no payload do job e o devolve à API no token de serviço; no schema `importacao`, fixa o tenant como a API | T-ISO-09, T-RLS-07, T-RLS-16, T-IMP-* |
+| **API de Contatos** | Implementado | `services/api-contatos/` | `tenant_id` só do JWT; todo acesso a dado de tenant em `withTenant`; 404 para recurso de outro tenant. Desde o bloco 14: exportação, cancelamento e o job diário de exclusão (LGPD), que apaga `orbita` e pede ao worker que apague `importacao` | T-ISO-01 a 19, T-LGPD-01 a 05, `scripts/demo-isolamento.ps1` |
+| **Serviço de Importação** | Implementado | `services/importacao/` | Recebe o tenant no payload do job e o devolve à API no token de serviço; no schema `importacao`, fixa o tenant como a API. Desde o bloco 14, também apaga o próprio schema de um tenant excluído (fila `exclusao-importacao`) | T-ISO-09, T-RLS-07, T-RLS-16, T-IMP-*, T-LGPD-03 |
 | **Fila e contadores** | Implementado | `redis` no compose, `deploy/k8s/20-redis.yaml` | O job leva `tenant_id`; o rate limit conta por tenant | T-OBS-02, T-RL-01 |
-| **PostgreSQL** | Implementado | `db/migrations/`, `db/init/` | RLS com `ENABLE` + `FORCE` e `NULLIF` em toda tabela com `tenant_id`; nenhum papel de aplicação com `BYPASSRLS` | T-RLS-01 a 19 |
+| **PostgreSQL** | Implementado | `db/migrations/`, `db/init/` | RLS com `ENABLE` + `FORCE` e `NULLIF` em toda tabela com `tenant_id`; nenhum papel de aplicação com `BYPASSRLS`; as duas funções que ignoram o RLS (`buscar_credencial` e `tenants_para_excluir`) são do `orbita_auth` e só a API executa | T-RLS-01 a 21 |
 | **migrate** | Implementado | `db/migrate.js`, `db/Dockerfile` | Roda como `migrador`, só no job de migração; a senha não chega a nenhum serviço | T-RLS-15, T-RLS-19 |
 | **Portal Web** | Implementado e ligado à API real (bloco 13, Fase 6) | `web/`, serviço `web` do compose, `deploy/k8s/70-web.yaml` | JWT no `sessionStorage`, tenant nunca em URL, query ou corpo | T-WEB-01 a 09 (simulador e stack real) |
-| **Serviço de Notificações** | Implementado no bloco 10, só o e-mail de confirmação; Mailpit no lugar do provedor | `services/notificacoes/`, `deploy/k8s/60-notificacoes.yaml` | Não tem banco: recebe no job só o destinatário do próprio cadastro. O link leva um token com `finalidade` que não serve como sessão | T-AUTH-09 a 13, T-RES-06, T-OBS-04, T-CQ03-01 |
+| **Serviço de Notificações** | Implementado no bloco 10 (confirmação de cadastro) e no bloco 14 (link de exportação depois do cancelamento); Mailpit no lugar do provedor | `services/notificacoes/`, `deploy/k8s/60-notificacoes.yaml` | Não tem banco: recebe no job só o destinatário do próprio cadastro. O link leva um token com `finalidade` que não serve como sessão | T-AUTH-09 a 13, T-RES-06, T-OBS-04, T-CQ03-01 |
 | **Gerador de Documentos** | Fora do escopo do semestre ([`contrato-api.md`](contrato-api.md), seção 10) | — | — | — |
 | **Armazenamento S3** | Adiado — ver [ADR-004](adr/adr-004-comunicacao-entre-servicos.md) (o CSV vai no payload do job) | — | — | — |
 

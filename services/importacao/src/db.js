@@ -73,3 +73,29 @@ export const gravarErros = (pool, tenantId, importacaoId, erros) =>
       [importacaoId, erros.map((e) => e.linha), erros.map((e) => e.motivo)],
     );
   });
+
+/**
+ * Exclusão do tenant (bloco 14, LGPD; achado B1). O ON DELETE CASCADE de orbita.tenants não chega a este
+ * schema (não há chave estrangeira entre os serviços), e a API não toca aqui (regra 10). Quem apaga é o
+ * próprio worker, como importacao_svc e com o tenant fixado: o RLS garante que só sai o que é do tenant.
+ * O WHERE repete o tenant de propósito (defesa em profundidade, igual à API).
+ * Idempotente: rodar de novo apaga 0 linhas.
+ * @returns {Promise<{erros_linha: number, execucoes: number}>}
+ */
+export const apagarDadosDoTenant = (pool, tenantId) =>
+  withTenant(pool, tenantId, async (c) => {
+    const erros = await c.query('DELETE FROM importacao.erros_linha WHERE tenant_id = $1', [tenantId]);
+    const execucoes = await c.query('DELETE FROM importacao.execucoes WHERE tenant_id = $1', [tenantId]);
+    return { erros_linha: erros.rowCount, execucoes: execucoes.rowCount };
+  });
+
+/**
+ * Apaga o que o worker gravou sobre UMA importação que a API não conhece mais (404 no /inicio ou nos lotes:
+ * o tenant foi excluído, ou nunca existiu). Sem isto, um job órfão que rodasse depois da exclusão do tenant
+ * recriaria linhas em importacao.execucoes e erros_linha (registrarExecucao e gravarErros vêm antes da API).
+ */
+export const apagarDaImportacao = (pool, tenantId, importacaoId) =>
+  withTenant(pool, tenantId, async (c) => {
+    await c.query('DELETE FROM importacao.erros_linha WHERE importacao_id = $1', [importacaoId]);
+    await c.query('DELETE FROM importacao.execucoes WHERE importacao_id = $1', [importacaoId]);
+  });

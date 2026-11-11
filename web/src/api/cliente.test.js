@@ -97,7 +97,7 @@ describe('erros decididos pelo codigo', () => {
       'Muitas ações seguidas. Tente de novo em 12 s.',
     );
     expect(mensagemDeErro(e('NAO_ENCONTRADO'), 'contato')).toBe('Não encontramos esse contato.');
-    expect(mensagemDeErro(e('NAO_ENCONTRADO'), 'conta')).toBe('Essa função ainda não está disponível.');
+    expect(mensagemDeErro(e('FILA_INDISPONIVEL'), 'conta')).toMatch(/^Não foi possível cancelar agora/);
     expect(mensagemDeErro(e('FILA_INDISPONIVEL'), 'importar')).toBe('qualquer texto'); // texto da API
     expect(mensagemDeErro(e('ERRO_INTERNO'))).toMatch(/Não conseguimos falar com o servidor/);
   });

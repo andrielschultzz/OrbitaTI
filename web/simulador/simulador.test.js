@@ -216,6 +216,41 @@ describe('simulador do contrato', () => {
     expect(JSON.stringify(exp.json())).not.toMatch(/senha_hash/);
   });
 
+  it('/conta (contrato 1.6): consultor 403; cancelar manda o link; o link baixa e não abre sessão; login recusado', async () => {
+    const h = await entrar();
+    const claims = JSON.parse(Buffer.from(h.authorization.split('.')[1], 'base64url').toString());
+    const consultor = { authorization: `Bearer ${assinar({ ...claims, papel: 'consultor' })}` };
+    expect((await app.inject({ method: 'GET', url: '/conta/exportacao', headers: consultor })).statusCode).toBe(403);
+    expect((await app.inject({ method: 'POST', url: '/conta/cancelamento', headers: consultor })).json().codigo).toBe('SEM_PERMISSAO');
+
+    const c = await app.inject({ method: 'POST', url: '/conta/cancelamento', headers: h });
+    expect(c.statusCode).toBe(200);
+    expect(Date.parse(c.json().exportacao_disponivel_ate) - Date.parse(c.json().cancelado_em)).toBe(30 * 24 * 3600 * 1000);
+    const token = new URL(app.emailsSimulados.at(-1).link).searchParams.get('token');
+    const arquivo = await app.inject({ method: 'GET', url: `/conta/exportacao/arquivo?token=${token}` });
+    expect(arquivo.statusCode).toBe(200);
+    expect(arquivo.json().tenant.id).toBe(claims.tenant_id);
+    expect((await app.inject({ method: 'GET', url: '/contatos', headers: { authorization: `Bearer ${token}` } })).statusCode).toBe(401);
+    const sessaoComoLink = await app.inject({ method: 'GET', url: `/conta/exportacao/arquivo?token=${h.authorization.slice(7)}` });
+    expect(sessaoComoLink.json().codigo).toBe('LINK_INVALIDO');
+    const login = await app.inject({ method: 'POST', url: '/auth/login', payload: { email: 'marcelo@devsolo.dev', senha: 'Demo@2026' } });
+    expect(login.statusCode).toBe(401);
+    // Pedir o link de novo (cancelar de novo): mesma data, e-mail novo.
+    const deNovo = await app.inject({ method: 'POST', url: '/conta/cancelamento', headers: h });
+    expect(deNovo.json()).toEqual(c.json());
+    expect(app.emailsSimulados.filter((e) => e.tenant_id === claims.tenant_id)).toHaveLength(2);
+  });
+
+  it('/conta/cancelamento com a fila fora: 503 FILA_INDISPONIVEL e a conta continua ativa', async () => {
+    await app.close();
+    app = buildSimulador({ fila: 'fora' });
+    const h = await entrar();
+    const r = await app.inject({ method: 'POST', url: '/conta/cancelamento', headers: h });
+    expect(r.statusCode).toBe(503);
+    expect(r.json().codigo).toBe('FILA_INDISPONIVEL');
+    await entrar(); // o login continua funcionando
+  });
+
   it('x-request-id: devolve o recebido ou gera um', async () => {
     const r1 = await app.inject({ method: 'GET', url: '/saude', headers: { 'x-request-id': 'abc-123' } });
     expect(r1.headers['x-request-id']).toBe('abc-123');
