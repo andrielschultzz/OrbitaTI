@@ -1,12 +1,13 @@
 # Contrato HTTP da API de Contatos
 
-**Versão:** 1.6 — 10/11/2026, derivada do `CLAUDE.md` e dos blocos 2, 4, 5, 10, 12 e 14.
+**Versão:** 1.7 — 10/11/2026, derivada do `CLAUDE.md` e dos blocos 2, 4, 5, 10, 12, 14 e 15.
 Mudanças da 1.1 (Fase 0 do bloco 13): `GET /planos/atual` virou `GET /planos` pública; dados extras de erro no nível de cima; lacuna dos papéis declarada.
 Mudanças da 1.2 (bloco 4): e-mail repetido no CSV vira erro de linha (o simulador mudou junto); separador decidido pelo cabeçalho; reimportação não apaga dado com célula vazia; respostas, limites e erros das rotas `/interno` definidos (seção 8). Nenhuma rota usada pelo Portal mudou de formato.
 Mudanças da 1.3 (bloco 7): headers `x-ratelimit-*` documentados na seção 1 (já eram enviados desde o bloco 5); decisões da seção 11 registradas no ADR-004. Nenhum formato mudou.
 Mudanças da 1.4 (bloco 10): `GET /auth/confirmar` implementada, com rate limit de 10/min por IP; todo token ruim (ausente, vencido, adulterado, de sessão) é `LINK_INVALIDO`, nunca `VALIDACAO`; o cadastro passa a enfileirar o e-mail de confirmação. Nenhum formato mudou.
 Mudanças da 1.5 (bloco 12): seções 5 e 6 implementadas na API. Detalhes fechados (o simulador mudou junto): desempate por `id` na ordem do "esfriando" e da lista de interações; `nota` só com espaços vira `null`; `ocorrida_em` retroativo permitido sem limite; `usuario_id` vem do token. Nenhum formato mudou.
 Mudanças da 1.6 (bloco 14): seções 4 e 9 implementadas na API. **Novo erro:** `POST /conta/cancelamento` responde `503 FILA_INDISPONIVEL` quando não consegue enfileirar o e-mail com o link, e nesse caso **não cancela** (o simulador e o Portal mudaram junto). Detalhes fechados: o link vale até `cancelado_em + 30 dias` (não 30 dias a partir do pedido); cancelar de novo devolve as mesmas datas e manda um e-mail novo; o link tem rate limit de 10/min por IP; depois da exclusão do tenant, o link responde `400 LINK_INVALIDO`; a lista de campos de cada parte da exportação. Nenhum formato de sucesso mudou.
+Mudanças da 1.7 (Bloco 15, 10/11/2026): só documentação do que a API **já fazia** (conferido no código), sem mudar nenhum formato. `POST /auth/login` passa a citar o 400 `VALIDACAO` (e-mail malformado ou campo vazio; o simulador e o Portal foram corrigidos junto, achado B12 em [`portal-pendencias.md`](portal-pendencias.md)); `/conta/*` responde 401 quando o tenant ou o usuário do token já foi apagado; as duas mensagens do 404 ("Rota não encontrada." e "Recurso não encontrado."); token de serviço com 5 s de tolerância de relógio; o 413 sai em toda rota, com o texto de "1 MB" mesmo na `/interno/.../lotes` (limite 4 MB); interação também atualiza o `atualizado_em` do contato; `nome` e `empresa` recusam texto só com espaços e são gravados sem os espaços das pontas; a ordem real do `POST /importacoes` (fila antes das simultâneas).
 
 ## Para que serve
 
@@ -67,13 +68,13 @@ Mudanças da 1.6 (bloco 14): seções 4 e 9 implementadas na API. **Novo erro:**
 |---|---|---|---|
 | 400 | `VALIDACAO` | Corpo ou query fora do schema | Confira os campos destacados. |
 | 400 | `LINK_INVALIDO` | Token de confirmação ou de exportação inválido ou vencido | Este link é inválido ou venceu. |
-| 401 | `NAO_AUTENTICADO` | Sem token, ou token inválido, adulterado ou expirado | Sua sessão expirou. Entre de novo. |
+| 401 | `NAO_AUTENTICADO` | Sem token, ou token inválido, adulterado ou expirado. Também em `/conta/*` quando o token ainda vale mas o tenant ou o usuário já foi apagado (1.7) | Sua sessão expirou. Entre de novo. |
 | 401 | `CREDENCIAIS_INVALIDAS` | Login com e-mail inexistente, senha errada ou tenant cancelado. **Mesmo corpo nos três casos** (T-AUTH-05) | E-mail ou senha incorretos. |
 | 403 | `SEM_PERMISSAO` | Papel sem permissão **dentro do próprio tenant** (ex.: consultor em `/conta/*`, T-LGPD-01) | Seu perfil não tem permissão para isso. |
-| 404 | `NAO_ENCONTRADO` | Recurso inexistente **ou de outro tenant**: mesmo status e mesmo corpo (regra 5, T-ISO-05). Em rota com `:id`, a API registra no log o evento `recurso_nao_encontrado` (`tenant_id`, `metodo`, `rota`, `id`); a resposta não muda (T-ISO-19) | Contato não encontrado. / Importação não encontrada. |
+| 404 | `NAO_ENCONTRADO` | Recurso inexistente **ou de outro tenant**: mesmo status e mesmo corpo (regra 5, T-ISO-05). Em rota com `:id`, a API registra no log o evento `recurso_nao_encontrado` (`tenant_id`, `metodo`, `rota`, `id`); a resposta não muda (T-ISO-19). Rota que não existe também é 404 `NAO_ENCONTRADO` (1.7) | Contato não encontrado. / Importação não encontrada. / Rota inexistente: Rota não encontrada. (`setNotFoundHandler` do `app.js`) / Sem texto próprio da rota: Recurso não encontrado. (`erros.js`) |
 | 409 | `EMAIL_JA_CADASTRADO` | Cadastro com e-mail de usuário que já existe | Esse e-mail já tem conta. |
 | 409 | `EMAIL_DUPLICADO` | Contato com e-mail já usado no mesmo tenant | Já existe um contato com esse e-mail. |
-| 413 | `ARQUIVO_GRANDE` | Corpo acima de 1 MB (1.048.576 bytes) | O arquivo passa de 1 MB. Divida a planilha em partes menores. |
+| 413 | `ARQUIVO_GRANDE` | Corpo acima do `bodyLimit` da rota: 1 MB (1.048.576 bytes) no `POST /importacoes` e nas demais; 4 MB na `/interno/importacoes/:id/lotes`. **Detalhe conhecido (1.7):** o texto fala em "1 MB" em toda rota, inclusive na `/lotes`; só o worker chama essa rota e ele decide pelo `codigo` | O arquivo passa de 1 MB. Divida a planilha em partes menores. |
 | 415 | `TIPO_NAO_SUPORTADO` | `Content-Type` errado | Formato não suportado. Envie um arquivo CSV. |
 | 422 | `CSV_VAZIO` | CSV sem nenhuma linha de dados | O arquivo não tem nenhum contato. |
 | 422 | `CSV_SEM_COLUNAS` | Cabeçalho sem a coluna `nome` ou sem a coluna `email` | A primeira linha precisa ter as colunas nome e email. |
@@ -112,7 +113,7 @@ Mudanças da 1.6 (bloco 14): seções 4 e 9 implementadas na API. **Novo erro:**
 
 | Campo | Regra |
 |---|---|
-| `empresa`, `nome` | 1 a 120 caracteres |
+| `empresa`, `nome` | 1 a 120 caracteres; texto só com espaços é recusado (400, `pattern: '\S'`) e os espaços das pontas são removidos ao gravar (1.7) |
 | `plano` | `individual` ou `equipe` |
 | `email` | válido, até 254 caracteres (limite do RFC 5321), gravado em minúsculas |
 | `senha` | 8 a 128 caracteres. O mínimo de 8 segue o NIST SP 800-63B; o máximo de 128 impede que uma senha gigante gaste CPU no Argon2 |
@@ -125,7 +126,10 @@ Mudanças da 1.6 (bloco 14): seções 4 e 9 implementadas na API. **Novo erro:**
 
 - **Corpo:** `{"email": "...", "senha": "..."}`
 - **Sucesso:** `200 {"token": "..."}`
-- **Erros:** 401 `CREDENCIAIS_INVALIDAS`; 429 (10 por minuto por IP + e-mail).
+- **Erros:** 400 `VALIDACAO` (1.7) para e-mail malformado ou campo vazio, antes de consultar o banco; 401 `CREDENCIAIS_INVALIDAS`; 429 (10 por minuto por IP + e-mail).
+  - Formato do 400 (o mesmo de toda validação, montado pelo `setErrorHandler` do `app.js` com `camposDaValidacao` de `erros.js`):
+    `{"erro": "Confira os campos destacados.", "codigo": "VALIDACAO", "campos": [{"campo": "email", "erro": "E-mail inválido."}]}`.
+    Senha vazia dá `{"campo": "senha", "erro": "Campo obrigatório."}`. O Portal destaca o campo citado.
 
 ### `GET /auth/confirmar?token=` — bloco 10
 
@@ -133,7 +137,7 @@ Mudanças da 1.6 (bloco 14): seções 4 e 9 implementadas na API. **Novo erro:**
 - **Erro:** 400 `LINK_INVALIDO` para **qualquer** token que não sirva: ausente, vazio, maior que 2 KB, vencido, adulterado, de usuário que não existe mais ou **de sessão**. Nunca `VALIDACAO`: a tela só precisa conhecer um código. 429 `LIMITE_REQUISICOES` acima de 10 por minuto por IP.
 - **Token:** JWT assinado pela API, válido por 24 h, com `finalidade: "confirmar-email"`. Não serve como token de sessão (nas rotas autenticadas dá 401), e o token de sessão não serve aqui.
 - **O login não exige confirmação.**
-- **Link do e-mail:** aponta para o **Portal**, em `${PORTAL_URL}/confirmar-email?token=...`, e a tela chama esta rota. `PORTAL_URL` vem do ambiente: `http://localhost:8080` local e a URL da VM depois. Nunca escreva "localhost" no código.
+- **Link do e-mail:** aponta para o **Portal**, em `${PORTAL_URL}/confirmar-email?token=...`, e a tela chama esta rota. `PORTAL_URL` vem do ambiente: `http://localhost:8080` local ~~e a URL da VM depois~~ e `http://localhost:30080` no kind (*revisão de 10/11/2026: a VM ficou fora do escopo, D-15.1; em produção, a URL pública*). Nunca escreva "localhost" no código.
 
 ### `GET /conta/exportacao/arquivo?token=` — bloco 14
 
@@ -166,10 +170,10 @@ Mudanças da 1.6 (bloco 14): seções 4 e 9 implementadas na API. **Novo erro:**
 
 | Campo | Regra |
 |---|---|
-| `nome` | obrigatório, 1 a 120 caracteres |
+| `nome` | obrigatório, 1 a 120 caracteres; só espaços é recusado (400) e as pontas são aparadas (1.7) |
 | `email` | opcional (regra 9), até 254 caracteres, único por tenant |
 | `telefone` | opcional, até 30 caracteres, texto livre como a pessoa digitar |
-| `empresa` | opcional, até 120 caracteres |
+| `empresa` | opcional, até 120 caracteres; como os outros opcionais, só com espaços vira `null` (1.7) |
 | `observacao` | opcional, até 500 caracteres. É "uma linha de contexto" (visão do produto); 500 cabem com folga |
 | `estagio` | `lead` \| `proposta` \| `cliente` \| `perdido`, padrão `lead`. Só existe a partir do bloco 12 |
 | `ultima_interacao_em` | `null` até a primeira interação |
@@ -240,6 +244,7 @@ Mudanças da 1.6 (bloco 14): seções 4 e 9 implementadas na API. **Novo erro:**
   - Pode estar no passado, inclusive antes do `criado_em` do contato: lançar o histórico de quem vinha de uma planilha é um uso real (e é o que o seed faz).
 - **Sucesso:** `201 {"interacao": Interação, "contato": Contato}`. O contato já vem atualizado, para o Portal não reimplementar a regra abaixo.
 - **Regra:** na mesma transação, `ultima_interacao_em = GREATEST(ultima_interacao_em, ocorrida_em)`. Registrar hoje uma ligação da semana passada não pode fazer o contato parecer mais frio.
+  - O mesmo `UPDATE` também muda o `atualizado_em` do contato para agora (1.7, `rotas/interacoes.js`).
 - **Erros:** 400; 404.
 
 ---
@@ -268,6 +273,7 @@ Mudanças da 1.6 (bloco 14): seções 4 e 9 implementadas na API. **Novo erro:**
 - **O que a API faz, nesta ordem:**
   1. lê **só o cabeçalho** e conta as linhas;
   2. confere o limite do plano e as importações simultâneas (contadas no banco);
+     - **Ordem real (1.7, `rotas/importacoes.js`):** limite de linhas do plano → **fila** (Redis no ar?) → importações simultâneas. A fila é testada antes para não gravar e logo desfazer. Consequência: com o Redis fora **e** o limite de simultâneas atingido, a resposta é **503** `FILA_INDISPONIVEL`, não 429.
   3. grava em `orbita.importacoes` com status `na_fila`, `total_linhas` preenchido e `total_lotes` nulo;
   4. enfileira o job (`jobId = importacao_id`). Se enfileirar falhar, desfaz o registro e responde 503.
 - **Sucesso:** `202 {"importacao_id": "…"}`.
@@ -318,6 +324,7 @@ Mudanças da 1.6 (bloco 14): seções 4 e 9 implementadas na API. **Novo erro:**
 ## 8. Rotas internas — só entre serviços (bloco 4)
 
 **Quem pode chamar:** só o worker de importação, com token de serviço. O token é assinado com `JWT_SERVICO_SEGREDO`, tem `iss: importacao`, `aud: api-contatos`, expira em 60 s e leva o claim `tenant_id` (regra 7). Um JWT de usuário recebe 401.
+A API aceita o token até 60 s de vida **mais 5 s de tolerância de relógio** (`clockTolerance` em `autenticacao.js`), para um relógio um pouco adiantado ou atrasado entre os contêineres não derrubar um lote (1.7).
 
 **O Portal nunca chama estas rotas.** O Nginx do Portal responde 404 para `/api/interno/`; a proteção de verdade é o token, e o bloqueio no Nginx é uma camada a mais.
 
@@ -355,12 +362,12 @@ Mudanças da 1.6 (bloco 14): seções 4 e 9 implementadas na API. **Novo erro:**
     | `importacoes` | os de `GET /importacoes/:id`, mais `usuario_id` |
 
   - **Fora da exportação:** os erros de linha das importações (`importacao.erros_linha`). São do schema do Serviço de Importação, que a API não lê (regra 10). Limitação registrada em [`lgpd.md`](lgpd.md); esses erros são apagados junto na exclusão do tenant.
-  - **Erro:** 403 `SEM_PERMISSAO` para quem não é admin.
+  - **Erro:** 403 `SEM_PERMISSAO` para quem não é admin; 401 `NAO_AUTENTICADO` se o token ainda vale mas o tenant já foi apagado (1.7, `rotas/conta.js`).
 - **`POST /conta/cancelamento`**
   - **Sucesso:** `200 {"cancelado_em": "...", "exportacao_disponivel_ate": "..."}`, sendo a segunda data o cancelamento + 30 dias.
   - **Efeitos:** a partir daí o login responde 401. O token já emitido vale até expirar (no máximo 15 min, sem denylist), por isso o Portal sai da conta logo depois de cancelar. O admin recebe por e-mail o link de exportação (seção 4).
   - **Cancelar de novo** (com o token ainda válido): devolve **as mesmas datas** e manda **outro e-mail** com o link. É o jeito de pedir o link de novo. Cada pedido gera um job com id novo, para que um envio que falhou e ficou no Redis não engula o pedido seguinte (o problema da N9). A trava contra clique duplo fica no botão do Portal.
-  - **Erros:** 403 `SEM_PERMISSAO`; **503 `FILA_INDISPONIVEL`** (1.6) quando o e-mail não pode ser enfileirado. Nesse caso a conta **não** é cancelada: o e-mail entra na mesma transação do cancelamento, porque depois de cancelar o link é o único caminho até os dados (o login já não funciona).
+  - **Erros:** 403 `SEM_PERMISSAO`; 401 `NAO_AUTENTICADO` se o tenant ou o usuário do token já foi apagado (1.7); **503 `FILA_INDISPONIVEL`** (1.6) quando o e-mail não pode ser enfileirado. Nesse caso a conta **não** é cancelada: o e-mail entra na mesma transação do cancelamento, porque depois de cancelar o link é o único caminho até os dados (o login já não funciona).
 
 ---
 
@@ -399,4 +406,4 @@ Registradas no [ADR-004](adr/adr-004-comunicacao-entre-servicos.md) (bloco 7). S
 | Cancelamento com a fila fora → 503, sem cancelar (1.6) | No cadastro o e-mail é opcional (o login não exige confirmação). No cancelamento não: sem o link, a pessoa perde o acesso aos próprios dados |
 | Link de exportação vence em `cancelado_em + 30 dias` (1.6) | O link nunca sobrevive à exclusão do tenant, e um reenvio não estende o prazo |
 | `jobId` novo a cada pedido de link (1.6) | Com id fixo, um envio falho (24 h no Redis) faria o BullMQ ignorar o pedido seguinte em silêncio (N9) |
-| `PORTAL_URL` nos links de e-mail | Os links funcionam local e na VM sem mudar código |
+| `PORTAL_URL` nos links de e-mail | Os links funcionam local ~~e na VM~~ (compose e kind; VM fora do escopo, D-15.1, revisão de 10/11/2026) sem mudar código |

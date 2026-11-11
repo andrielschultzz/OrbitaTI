@@ -3,6 +3,10 @@
 **Estado em 09/11/2026: as 8 fases do bloco 13 estão feitas.** A Fase 6 ligou o Portal na API real.
 Sobra só a lista da seção 2 (VM do LARCC), que não é deste bloco.
 
+> **Revisão de 10/11/2026 (Bloco 15):** a lista da seção 2 ficou **fora do escopo (D-15.1)**: a apresentação
+> roda localmente, no notebook (decisão em [`pendencias-bloco-7.md`](pendencias-bloco-7.md), seção 13). O item 7
+> (`/conta/*`) foi fechado pelo bloco 14. A seção 3 registra o que o Bloco 15 achou no simulador.
+
 Resultado da Fase 6 (detalhes de cada item abaixo):
 
 | Verificação | Compose (8080) | kind (30080) |
@@ -16,6 +20,10 @@ Resultado da Fase 6 (detalhes de cada item abaixo):
 | `npm test` da raiz (com `TESTES_LENTOS=1`) | 258/258 | — |
 | Unitários do Portal | 42/42 | — |
 
+> **Nota de 10/11/2026 (Bloco 15):** os números acima são de 09/11. Foram 33/33 E2E na Fase 6, sem
+> divergência; o bloco 14 levou a suíte a 35 E2E (sem contar as capturas), e o B12 do Bloco 15 a 36.
+> Em 10/11: **36/36 contra o simulador e 36/36 contra o compose (API real)**; unitários do Portal 44/44.
+
 ## 1. Fase 6: integração com a API real (feita em 09/11/2026)
 
 Detalhes em `prompts/bloco-13.md`, Fase 6. Abaixo, o texto original de cada item e, em **Feito**, o que
@@ -24,8 +32,9 @@ foi feito e medido.
 **Feito, em resumo:**
 
 1. **Contrato contra código:** os 33 E2E passaram contra a API real sem mudar nada, nem no contrato, nem no
-   simulador, nem na API. As rotas `/conta/*` (bloco 14) respondem 404 `NAO_ENCONTRADO`, e o Portal mostra
-   "Essa função ainda não está disponível." (item 7).
+   simulador, nem na API. ~~As rotas `/conta/*` (bloco 14) respondem 404 `NAO_ENCONTRADO`, e o Portal mostra
+   "Essa função ainda não está disponível." (item 7).~~ Era o estado de 09/11; o bloco 14 entregou as rotas
+   (item 7, fechado).
 2. **Serviço `web` no compose**, com `WEB_PORTA` no `.env.example`. Achado: o `tmpfs` do `/etc/nginx/conf.d`
    precisa de `uid=101`. Sem isso, o entrypoint só registra "conf.d is not writable", e o nginx sobe **sem
    nenhum server** (o contêiner fica de pé e não escuta a 8080). O healthcheck pegou.
@@ -47,6 +56,8 @@ foi feito e medido.
 6. **Bloco 5 confirmado no compose:** a API registra o IP do cliente (`172.20.0.1`), e não o do nginx
    (`172.20.0.8`). Um `X-Forwarded-For` forjado é ignorado, e a 3000 só existe em `127.0.0.1`.
 7. **`/conta/*`:** 404 na API real, como previsto. Conferir de novo quando o bloco 14 existir.
+   **Fechado em 10/11/2026 (Bloco 15):** o bloco 14 entregou as rotas (`services/api-contatos/src/rotas/conta.js`)
+   e o E2E das telas da conta (`web/e2e/conta.spec.js`), que roda contra a API real no job `api` do CI.
 8. **kind:** `deploy/k8s/70-web.yaml` (2 réplicas, NodePort 30080, `preStop: sleep 5`, probes em `/healthz`,
    raiz só leitura); `api-contatos` como ClusterIP com `TRUST_PROXY_SALTOS=1` (J6); `deploy-kind.ps1` faz o
    build, o `kind load` e o apply do `web`, nessa ordem depois da API; seed, sonda e demos em `.../30080/api`.
@@ -127,7 +138,8 @@ Texto original dos itens, como registro:
    - Pelo nginx, o IP no log da API é o do cliente.
    - A porta 3000 da API está publicada só em `127.0.0.1`.
 7. **Telas da conta (bloco 14).** Se a API real devolver 404 em `/conta/*`, o Portal mostra "Essa função
-   ainda não está disponível.". Conferir quando o bloco 14 existir.
+   ainda não está disponível.". Conferir quando o bloco 14 existir. *(Fechado no Bloco 15: ver o item 7 de
+   "Feito".)*
 8. **kind** (se o bloco 6 existir):
    - Deployment e Service `web` no NodePort 30080; `api-contatos` vira ClusterIP.
    - Antes, listar o que usa a 30080 direto: seed, scripts de demo e testes.
@@ -135,15 +147,54 @@ Texto original dos itens, como registro:
    - Os scripts de demo passam a aceitar `-BaseUrl http://localhost:30080/api`.
 9. **Repetir o Lighthouse** contra a stack real e registrar um novo ensaio em `docs/ensaios/`.
 
-## 2. Para publicar na VM do LARCC (SETREM)
+## 2. ~~Para publicar na VM do LARCC (SETREM)~~ — fora do escopo (D-15.1)
+
+> **Revisão de 10/11/2026 (Bloco 15):** **toda esta seção ficou fora do escopo (D-15.1).** A apresentação roda
+> localmente, no notebook: Portal e demos no Docker Compose, kind para mostrar o deploy
+> ([`pendencias-bloco-7.md`](pendencias-bloco-7.md), seção 13). A lista fica como registro do que fazer se o
+> produto for publicado.
 
 Só a lista. Nada disto foi implementado.
 
-- **HTTPS:** pelo proxy do laboratório ou com certificado próprio. Com HTTPS, ligar o HSTS no
+- **HTTPS (fora do escopo, D-15.1):** pelo proxy do laboratório ou com certificado próprio. Com HTTPS, ligar o HSTS no
   `web/nginx/seguranca.conf`. Se houver um proxy do laboratório na frente, ajustar `TRUST_PROXY_SALTOS`
   para 2.
-- **Scripts `.ps1`:** precisam de versão em bash ou rodar com `pwsh` no Linux.
-- **Backup** do Postgres na VM (o ensaio de restauração do bloco 11 vale como procedimento).
-- **Expor só a porta do `web`** e configurar o firewall da VM. API, Postgres e Redis ficam só na rede interna.
-- **`PORTAL_URL`** com o endereço público (links dos e-mails de confirmação e de exportação).
-- **Acesso à VM:** quem tem, com que chave, e como se revoga.
+- **Scripts `.ps1` (fora do escopo, D-15.1):** precisam de versão em bash ou rodar com `pwsh` no Linux.
+- **Backup** *(fora do escopo, D-15.1)* do Postgres na VM (o ensaio de restauração do bloco 11 vale como procedimento).
+- **Expor só a porta do `web`** *(fora do escopo, D-15.1)* e configurar o firewall da VM. API, Postgres e Redis ficam só na rede interna.
+- **`PORTAL_URL`** *(fora do escopo, D-15.1)* com o endereço público (links dos e-mails de confirmação e de exportação).
+- **Acesso à VM (fora do escopo, D-15.1):** quem tem, com que chave, e como se revoga.
+
+## 3. Achados do Bloco 15 (10/11/2026): simulador × API
+
+### B12 — login com e-mail malformado (resolvido no Bloco 15)
+
+- **O problema:** a API responde **400 `VALIDACAO`** para um e-mail malformado no login (o schema do
+  `POST /auth/login` usa `format: 'email'`, em `services/api-contatos/src/rotas/auth.js`). O simulador não tinha
+  o `format` e respondia **401 `CREDENCIAIS_INVALIDAS`**. Contra a API real, o Portal mostrava "Confira os campos
+  destacados." sem destacar campo nenhum.
+- **Resolução (Bloco 15):** o simulador responde 400 `VALIDACAO` com `campos`, como a API; o Portal destaca o
+  campo de e-mail; um E2E cobre o caso (`a@b`). O contrato passou a citar o 400 no login (versão 1.7).
+- **Por que `a@b`:** o navegador aceita `a@b` num `type="email"` (domínio sem ponto é válido no HTML), mas o
+  `format: 'email'` do Ajv exige ponto no domínio. É exatamente o caso que escapa da tela e chega na API.
+- **Onde:** `web/simulador/app.js` (schema do login), `web/src/paginas/publico/Entrar.jsx` (destaca e foca o
+  campo, como o Cadastro já fazia), `web/e2e/sessao.spec.js` ("login com e-mail malformado (a@b)").
+- **Resultado (10/11/2026):** E2E 36/36 contra o simulador (imagem do Portal na 8081 + `npm run simulador`) e
+  36/36 contra o compose (`E2E_URL=http://127.0.0.1:8080`); unitários do Portal 44/44.
+
+### Diferenças menores simulador × contrato (só registro, não corrigidas)
+
+Conferidas em `web/simulador/app.js`. Nenhuma muda o que o Portal faz no caminho normal, e os E2E contra a API
+real (job `api` do CI) cobrem o comportamento verdadeiro. Ficam registradas para ninguém confiar no simulador
+nesses pontos:
+
+| # | Simulador | Contrato / API |
+|---|---|---|
+| 1 | `GET /auth/confirmar` sem rate limit | 10 por minuto por IP |
+| 2 | Token de confirmação com `finalidade: 'confirmar'` | `finalidade: "confirmar-email"` |
+| 3 | Separador do CSV: `;` se o cabeçalho tiver **qualquer** `;`, senão `,` | O que aparecer **mais vezes** no cabeçalho |
+| 4 | `POST /importacoes` aceita `text/plain` (o Fastify já tem esse parser) | 415 `TIPO_NAO_SUPORTADO` para tudo que não é `text/csv` |
+| 5 | `PATCH /contatos/:id` com corpo vazio (`{}`) dá 200 | 400 `VALIDACAO` (`minProperties: 1`) |
+| 6 | Exportação: `importacoes` sem `usuario_id` | Com `usuario_id` (contrato, seção 9) |
+| 7 | Sem os headers `x-ratelimit-*` | `x-ratelimit-limit`, `-remaining` e `-reset` em toda rota limitada |
+| 8 | `nome` e `empresa` só com espaços são aceitos | `nome` (cadastro e contato) e `empresa` (cadastro) só com espaços: 400 `VALIDACAO` (`pattern: '\S'`); gravados sem os espaços das pontas. A `empresa` **do contato** é opcional: só com espaços vira `null` |

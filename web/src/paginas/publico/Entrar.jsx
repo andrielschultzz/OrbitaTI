@@ -17,7 +17,9 @@ export default function Entrar() {
   const [senha, setSenha] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState(null);
+  const [erros, setErros] = useState({});
   const refErro = useRef(null);
+  const refForm = useRef(null);
 
   const destino = voltarSeguro(params.get('voltar'));
   const expirou = params.get('sessao') === 'expirada';
@@ -29,6 +31,7 @@ export default function Entrar() {
     if (enviando) return;
     setEnviando(true);
     setErro(null);
+    setErros({});
     try {
       const { token } = await api('/auth/login', {
         metodo: 'POST',
@@ -38,9 +41,15 @@ export default function Entrar() {
       entrar(token);
       navegar(destino, { replace: true });
     } catch (falha) {
-      // Um só erro, sem dizer qual campo errou (a API também não diz).
-      setErro({ texto: mensagemDeErro(falha, 'login'), codigo: ehInesperado(falha) ? falha.requestId : null });
       setEnviando(false);
+      // Formato inválido (ex.: "a@b", que o navegador aceita): a API diz qual campo, e o Portal destaca.
+      if (falha.codigo === 'VALIDACAO' && falha.campos.length) {
+        setErros(Object.fromEntries(falha.campos.map((c) => [c.campo, c.erro])));
+        requestAnimationFrame(() => refForm.current?.querySelector('[aria-invalid="true"]')?.focus());
+        return;
+      }
+      // Credencial errada: um só erro, sem dizer qual campo errou (a API também não diz).
+      setErro({ texto: mensagemDeErro(falha, 'login'), codigo: ehInesperado(falha) ? falha.requestId : null });
       requestAnimationFrame(() => refErro.current?.focus());
     }
   }
@@ -67,7 +76,7 @@ export default function Entrar() {
           </div>
         </div>
       )}
-      <form onSubmit={enviar} className="flex flex-col gap-5" noValidate>
+      <form ref={refForm} onSubmit={enviar} className="flex flex-col gap-5" noValidate>
         <Campo
           rotulo="E-mail"
           tipo="email"
@@ -77,6 +86,7 @@ export default function Entrar() {
           spellCheck={false}
           value={email}
           onChange={(e) => setEmail(e.target.value)}
+          erro={erros.email}
           obrigatorio
         />
         <Campo
@@ -85,6 +95,7 @@ export default function Entrar() {
           autoComplete="current-password"
           value={senha}
           onChange={(e) => setSenha(e.target.value)}
+          erro={erros.senha}
           obrigatorio
         />
         <Botao type="submit" icone={LogIn} carregando={enviando} textoCarregando="Entrando…" className="w-full">

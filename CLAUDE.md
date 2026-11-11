@@ -21,6 +21,9 @@ oralmente tudo o que for gerado: explique o porquê de cada decisão em linguage
 - `docs/contrato-api.md` — contrato HTTP entre Portal e API (rotas, formatos, erros com `codigo`).
   Mudou a API, muda o contrato no mesmo passo
 - `docs/dpa-esboco.md` — esboço do contrato de operador (bloco 14), cláusula por cláusula com onde se cumpre
+- **D-15.1** (`docs/pendencias-bloco-7.md`, seção 13): a apresentação roda **localmente, no notebook** (Portal e
+  demos no Docker Compose; kind para mostrar o deploy). Publicar numa VM (LARCC) ficou **fora do escopo**: HTTPS,
+  SMTP real, retenção de logs e o resto da lista da VM viraram "fora do escopo (D-15.1)"
 
 Se uma tarefa exigir contrariar um ADR, **pare e pergunte**. Não mude a decisão em silêncio.
 
@@ -43,7 +46,7 @@ Se uma tarefa exigir contrariar um ADR, **pare e pergunte**. Não mude a decisã
   (porta 8080) e Deployment `web` no kind (NodePort 30080, 2 réplicas; a `api-contatos` virou ClusterIP).
   O nginx acha a API por `resolver` + variável (resolve de novo a cada 10 s; o DNS vem do `/etc/resolv.conf`,
   `web/nginx/16-api-resolver.envsh`). O simulador (`web/simulador/`) continua para o modo dev e o job `web`
-  do CI. Pendências e lista para a VM em `docs/portal-pendencias.md`
+  do CI. Pendências em `docs/portal-pendencias.md` (a lista para a VM ficou fora do escopo: D-15.1, apresentação local)
 
 ## Estrutura
 
@@ -58,6 +61,7 @@ db/migrations/           schemas, tabelas, RLS, grants
 db/migrate.js            aplica migrações (imagem orbitati/migrate: db/Dockerfile, pacote próprio fora dos workspaces)
 deploy/k8s/              manifests do kind (namespace orbitati), aplicados pelo scripts/deploy-kind.ps1; 70-web.yaml = Portal na NodePort 30080; exemplos/ = Secret com valores falsos (fora do apply)
 tests/                   testes de integração (isolamento, RLS, importação, confirmação de e-mail, interações e "esfriando", LGPD, CQ-03); tests/apoio/ = funções comuns, inclusive mailpit.js (não são testes)
+docs/roteiro-defesa.md, docs/uso-de-ia.md, docs/etapa-3.md, docs/etapa-4.md   roteiro da defesa, registro do uso de IA e entregas das Etapas 3 e 4 (Bloco 15)
 docs/ensaios/            relatórios datados de medição (CQ-01, CQ-03, CQ-04 e T-CQ04-02, CQ-05, Lighthouse); cq04-*-amostras.csv = CSV da sonda
 backups/                 dumps e CSVs do bloco 11 (FORA do git: dado pessoal); criado pelo backup.ps1
 tests/carga/             k6 (CQ-01): cq01.js (cenários), janelas.js (veredito "na janela" x "geral") e teste; resultados/ = saída do medir-cq01.ps1 (k6.json fora do git)
@@ -127,7 +131,7 @@ Variáveis do Portal:
 | `E2E_URL` | Playwright e Lighthouse | `http://localhost:8080` | Portal que a suíte testa (8080 Docker, 30080 kind) |
 | `E2E_DEMO_EMAIL` / `E2E_DEMO_SENHA` | capturas e Lighthouse | `marcelo@devsolo.dev` / `Demo@2026` | Conta com dados (na stack real, vem do seed do bloco 3) |
 | `SIM_PORTA`, `SIM_FILA=fora`, `SIM_LIMITE_RPM`, `SIM_PORTAL_URL` | simulador | 3001, ok, plano, `:5173` | Porta e cenários de falha do simulador |
-| `WEB_PORTA` | compose (`.env`) | 8080 | Porta publicada do Portal (a única exposta na VM) |
+| `WEB_PORTA` | compose (`.env`) | 8080 | Porta publicada do Portal (a única porta pensada para ficar exposta; a VM ficou fora do escopo, D-15.1) |
 
 ## Regras de multi-tenancy (inegociáveis)
 
@@ -144,8 +148,12 @@ Variáveis do Portal:
    0 linhas: confira `rowCount` e devolva 404.
 6. Papéis do Postgres: `api_contatos` (CRUD no schema `orbita`), `importacao_svc` (só schema
    `importacao`, **sem nenhum GRANT em `orbita`**), `migrador` (dono, só migrações),
-   `orbita_auth` (BYPASSRLS, NOLOGIN, dono apenas da função `orbita.buscar_credencial`).
-   Nenhum papel de aplicação tem BYPASSRLS. Login é a única exceção controlada, via essa função.
+   `orbita_auth` (BYPASSRLS, NOLOGIN, dono só de duas funções `SECURITY DEFINER`: `orbita.buscar_credencial`
+   e, desde a migração 004, `orbita.tenants_para_excluir()`). Nenhum papel de aplicação tem BYPASSRLS. As únicas
+   exceções controladas são essas duas funções (login e lista de tenants a excluir), com `EXECUTE` só para
+   `api_contatos`. Os comentários da `001_base.sql` e do `01-papeis.sh` que tratam o login como a única exceção estão
+   desatualizados e não serão editados (o `migrate.js` confere o hash da migração aplicada; seção 13 de
+   `docs/pendencias-bloco-7.md`).
 7. Importação grava contatos **chamando a API** (`POST /interno/importacoes/:id/lotes`) com token de
    serviço (segredo próprio, `aud: api-contatos`, `iss: importacao`, expira em 60 s, claim `tenant_id`).
 8. Idempotência: job do BullMQ com `jobId = importacao_id`; lote registrado em `orbita.lotes_aplicados`
@@ -170,7 +178,7 @@ Variáveis do Portal:
 | Rate limit por tenant | 60 req/min por usuário permitido no plano (individual 1 × 60 = 60 · equipe 10 × 60 = 600); 60/min = um clique por segundo em rajada |
 | Armazenamento do rate limit | **Redis** (a API roda com 2 réplicas no kind; em memória cada réplica contaria separado e o limite dobraria). Redis fora → `skipOnError: true`, o limite é ignorado em vez de derrubar a API |
 | Rate limit de login | 10 req/min por IP + e-mail |
-| Rate limit de confirmação de e-mail | 10 req/min por IP (`GET /auth/confirmar`; mesmo número do login: uma pessoa clica 1 ou 2 vezes). No kind vira global (K2) |
+| Rate limit de confirmação de e-mail | 10 req/min por IP (`GET /auth/confirmar`; mesmo número do login: uma pessoa clica 1 ou 2 vezes). No kind vira global (K2: o nginx do Portal já recebe o mesmo IP interno para todos os clientes) |
 | Rate limit do link de exportação | 10 req/min por IP (`GET /conta/exportacao/arquivo`, pública). No kind vira global (K2) |
 | Link de exportação (bloco 14) | JWT com `JWT_SEGREDO` e `finalidade: "exportar-conta"`, vence em **`cancelado_em + 30 dias`** (reenviar não estende). Não serve como sessão (401) e a sessão não serve como link (400). Depois da exclusão, 400 `LINK_INVALIDO` |
 | E-mail do cancelamento | Enfileirado **na transação** do cancelamento: fila fora → 503 `FILA_INDISPONIVEL` e nada muda. `jobId = exportacao-<tenant_id>-<uuid>` (novo a cada pedido: cancelar de novo = pedir o link de novo); mesmas opções do job de confirmação |
@@ -178,7 +186,7 @@ Variáveis do Portal:
 | Link de confirmação de e-mail | JWT de **24 h** com `JWT_SEGREDO` e `finalidade: "confirmar-email"`. Não serve como sessão (401) e a sessão não serve para confirmar (400). O login não exige confirmação |
 | Job de e-mail (fila `emails`) | 5 tentativas, backoff exponencial de 2 s; `removeOnComplete`; falha fica 24 h (`removeOnFail`, a validade do link); `jobId = confirmar-cadastro-<usuario_id>` (**sem `:`**, que o BullMQ 6 recusa); worker com `concurrency: 5` |
 | Rate limit de cadastro | `LIMITE_CADASTRO_POR_MIN` por IP (padrão 60). A suíte manda um `X-Forwarded-For` 203.0.113.N por arquivo (`tests/apoio/api.js`) |
-| IP real atrás do proxy | `TRUST_PROXY_SALTOS` (padrão 1; kind com NodePort: 0), e só se a conexão vier de rede interna. O Fastify ≥ 5.12.1 ignora `trustProxy` numérico (`docs/pendencias-bloco-7.md`, J4 a J6) |
+| IP real atrás do proxy | `TRUST_PROXY_SALTOS` (padrão 1; no kind também 1 desde a Fase 6 do bloco 13, porque a API virou ClusterIP atrás do nginx do Portal: `deploy/k8s/40-api-contatos.yaml`), e só se a conexão vier de rede interna. O Fastify ≥ 5.12.1 ignora `trustProxy` numérico (`docs/pendencias-bloco-7.md`, J4 a J6) |
 | Token de acesso | 15 min |
 | CQ-01 | busca de outros tenants p95 < 800 ms durante importação de 500+ |
 | CQ-02 | 100% das tentativas cruzadas → 404 |

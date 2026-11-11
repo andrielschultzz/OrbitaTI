@@ -40,6 +40,31 @@ test.describe('sessão', () => {
     await expect(page).toHaveURL(/voltar=%2Fimportar/);
   });
 
+  // B12 (Bloco 15): "a@b" passa pela validação do navegador (type=email), mas não pelo format "email" do
+  // Ajv. A API (e o simulador) respondem 400 VALIDACAO com campos, e o Portal destaca o campo E-mail em vez
+  // de mostrar "Confira os campos destacados." sem nada destacado.
+  test('login com e-mail malformado (a@b): 400 VALIDACAO e o campo E-mail destacado e focado', async ({ page }) => {
+    const campo = (nome) => page.getByRole('textbox', { name: nome, exact: true });
+    await page.goto('/entrar');
+    await campo('E-mail').fill('a@b');
+    await campo('Senha').fill('Qualquer@2026');
+
+    const resposta = page.waitForResponse((r) => r.url().includes('/api/auth/login'));
+    await page.getByRole('button', { name: 'Entrar' }).click();
+    const r = await resposta;
+    expect(r.status()).toBe(400);
+    const corpo = await r.json();
+    expect(corpo.codigo).toBe('VALIDACAO');
+    expect(corpo.campos).toEqual([{ campo: 'email', erro: 'E-mail inválido.' }]);
+
+    await expect(campo('E-mail')).toHaveAttribute('aria-invalid', 'true');
+    await expect(campo('E-mail')).toBeFocused();
+    await expect(page.getByText('E-mail inválido.')).toBeVisible();
+    await expect(campo('Senha')).not.toHaveAttribute('aria-invalid', 'true');
+    await expect(page.getByText('Confira os campos destacados.')).toHaveCount(0);
+    await expect(page).toHaveURL(/\/entrar/);
+  });
+
   test('rota protegida sem sessão vai para /entrar sem o aviso de expiração', async ({ page }) => {
     await page.goto('/contatos');
     await expect(page).toHaveURL(/\/entrar/);

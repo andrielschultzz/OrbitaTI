@@ -2,7 +2,16 @@
 
 **Unidade:** Andriel Schultz e Cristofer Mateus Rutzen
 **Escrito em:** 29/10/2026, antes do código da Etapa 2
-**Status:** cada bloco que automatiza um caso troca o status dele neste arquivo (blocos 1 a 4 automatizados).
+**Status:** cada bloco que automatiza um caso troca o status dele neste arquivo (~~blocos 1 a 4 automatizados~~; em 10/11/2026: blocos 1 a 14 com os casos automatizados ou executados, ver a nota abaixo).
+
+> **Nota de revisão — 10/11/2026 (Bloco 15).** Conferência do status de cada caso contra o código e os relatórios:
+> - **T-AUTH-01 a 08** e **T-CON-01 a 04** estavam "planejado", mas já são automatizados desde o bloco 2
+>   (`tests/auth.test.js` e `tests/contatos.test.js`, que citam cada ID).
+> - **T-CQ04-01**, **T-CQ05-01 a 03** (bloco 11) e o **T-CQ04-02** foram executados, com relatório em `docs/ensaios/`.
+> - A matriz de rastreabilidade passou a citar **T-RLS-01 a 21** (o `tests/rls.test.js` vai até o 21).
+> - Os T-WEB rodam contra a API real **no CI** (job `api`), não só à mão.
+> - Alguns casos **não são citados pelo ID** dentro dos arquivos que os executam. O mapa ID → arquivo está na
+>   seção 3.6. O código não foi alterado para incluir os IDs.
 
 Este documento é a especificação dos testes. Os arquivos de teste citam os IDs daqui
 (ex.: `it('T-RLS-03 conexão reaproveitada sem tenant vê 0 linhas', ...)`), e o ID nunca muda.
@@ -136,14 +145,14 @@ valer quando as 12 rotas do C4 existirem. O T-ISO-15 garante que nenhuma rota no
 
 | ID | O que verifica | Origem | Pré-condição | Passos | Resultado esperado | Tipo | Ferramenta | Bloco | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| T-AUTH-01 | Cadastro self-service | CQ-03; ADR-001 | e-mail novo | `POST /auth/cadastro {empresa, plano, nome, email, senha}` | 201 `{token}`; o token traz `tenant_id`, `plano` e `papel: "admin"` | Integração | Vitest | 2 | planejado |
-| T-AUTH-02 | E-mail repetido no cadastro | Regra 8 | e-mail já cadastrado | Repetir o cadastro, também com o e-mail em maiúsculas | 409 nos dois | Integração | Vitest | 2 | planejado |
-| T-AUTH-03 | Corpo inválido no cadastro | Bloco 2, item 4 | — | Sem e-mail; plano fora de `individual`/`equipe` | 400 | Integração | Vitest | 2 | planejado |
-| T-AUTH-04 | Login correto | ADR-002 | usuário cadastrado | `POST /auth/login` | 200 `{token}` com o mesmo `tenant_id` do cadastro | Integração | Vitest | 2 | planejado |
-| T-AUTH-05 | Senha errada e e-mail inexistente dão a mesma resposta | Bloco 2, item 5 | idem | Login com senha errada; login com e-mail inexistente | 401 nos dois, com **corpo idêntico** (não revela qual campo errou) | Integração | Vitest | 2 | planejado |
-| T-AUTH-06 | Rota protegida sem token | ADR-002 | — | `GET /contatos` sem `Authorization` | 401 | Integração | Vitest | 2 | planejado |
-| T-AUTH-07 | Token de acesso vale 15 min | ADR-002; números do projeto | token do login | Decodificar o JWT | `exp − iat = 900` s (15 × 60) | Integração | Vitest | 2 | planejado |
-| T-AUTH-08 | Senha guardada com Argon2id | LGPD (medidas de segurança) | usuário cadastrado | Ler `senha_hash` (via `buscar_credencial`) | Começa com `$argon2id$` e não contém a senha | Integração | Vitest + pg | 2 | planejado |
+| T-AUTH-01 | Cadastro self-service | CQ-03; ADR-001 | e-mail novo | `POST /auth/cadastro {empresa, plano, nome, email, senha}` | 201 `{token}`; o token traz `tenant_id`, `plano` e `papel: "admin"` | Integração | Vitest | 2 | automatizado (`tests/auth.test.js`; status corrigido em 10/11/2026, era "planejado") |
+| T-AUTH-02 | E-mail repetido no cadastro | Regra 8 | e-mail já cadastrado | Repetir o cadastro, também com o e-mail em maiúsculas | 409 nos dois | Integração | Vitest | 2 | automatizado (`tests/auth.test.js`; status corrigido em 10/11/2026, era "planejado") |
+| T-AUTH-03 | Corpo inválido no cadastro | Bloco 2, item 4 | — | Sem e-mail; plano fora de `individual`/`equipe` | 400 | Integração | Vitest | 2 | automatizado (`tests/auth.test.js`; status corrigido em 10/11/2026, era "planejado") |
+| T-AUTH-04 | Login correto | ADR-002 | usuário cadastrado | `POST /auth/login` | 200 `{token}` com o mesmo `tenant_id` do cadastro | Integração | Vitest | 2 | automatizado (`tests/auth.test.js`; status corrigido em 10/11/2026, era "planejado") |
+| T-AUTH-05 | Senha errada e e-mail inexistente dão a mesma resposta | Bloco 2, item 5 | idem | Login com senha errada; login com e-mail inexistente | 401 nos dois, com **corpo idêntico** (não revela qual campo errou) | Integração | Vitest | 2 | automatizado (`tests/auth.test.js`; status corrigido em 10/11/2026, era "planejado") |
+| T-AUTH-06 | Rota protegida sem token | ADR-002 | — | `GET /contatos` sem `Authorization` | 401 | Integração | Vitest | 2 | automatizado (`tests/auth.test.js`; status corrigido em 10/11/2026, era "planejado") |
+| T-AUTH-07 | Token de acesso vale 15 min | ADR-002; números do projeto | token do login | Decodificar o JWT | `exp − iat = 900` s (15 × 60) | Integração | Vitest | 2 | automatizado (`tests/auth.test.js`; status corrigido em 10/11/2026, era "planejado") |
+| T-AUTH-08 | Senha guardada com Argon2id | LGPD (medidas de segurança) | usuário cadastrado | Ler `senha_hash` (via `buscar_credencial`) | Começa com `$argon2id$` e não contém a senha | Integração | Vitest + pg | 2 | automatizado (`tests/auth.test.js`; status corrigido em 10/11/2026, era "planejado") |
 | T-AUTH-09 | O link do e-mail confirma o endereço | Bloco 10, item 4; contrato, seção 4 | e-mail recebido no Mailpit | `GET /auth/confirmar?token=` com o token do link; repetir | 200 `{confirmado_em}`; a data vai para `usuarios.email_confirmado_em`; o 2º clique devolve a **mesma** data | Integração | Vitest | 10 | automatizado (`tests/confirmacao.test.js`) |
 | T-AUTH-10 | Link que não vale | Contrato, seção 4 | — | Token ausente, vazio, > 2 KB, vencido, adulterado, de usuário inexistente e de **outro tenant** (sub de B com tenant de A) | 400 `LINK_INVALIDO` em todos (nunca `VALIDACAO` nem 500); o usuário de B continua sem confirmação | Integração + unitário | Vitest | 10 | automatizado (`tests/confirmacao.test.js`, `services/api-contatos/test/confirmacao.test.js`) |
 | T-AUTH-11 | Token do link de e-mail **não** abre sessão | Bloco 10 (pedido da revisão do plano) | — | Token do link (e um forjado com `plano`, `papel` **e** `finalidade`) em `GET /contatos` | 401 nos dois. Sem isso, um link de e-mail de 24 h viraria uma sessão de 24 h | Integração + unitário | Vitest | 10 | automatizado; prova por mutação: sem a checagem no `autenticacao.js`, o teste cai |
@@ -154,10 +163,10 @@ valer quando as 12 rotas do C4 existirem. O T-ISO-15 garante que nenhuma rota no
 
 | ID | O que verifica | Origem | Pré-condição | Passos | Resultado esperado | Tipo | Ferramenta | Bloco | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| T-CON-01 | CRUD completo de um tenant | Bloco 2, item 6 | tenant A | Criar, ler, alterar, listar e excluir | 201, 200, 200, 200 e 204; depois do DELETE, GET → 404 | Integração | Vitest | 2 | planejado |
-| T-CON-02 | Só `nome` é obrigatório | D3 de [`pendencias-bloco-7.md`](pendencias-bloco-7.md) | — | `POST /contatos {"nome":"x"}`; depois sem `nome` | 201; sem nome → 400 | Integração | Vitest | 2 | planejado |
-| T-CON-03 | E-mail em minúsculas e único no tenant | Regra 8 | contato `a@x.com` em A | Criar outro com `A@X.com` em A; criar `a@x.com` em B | Em A → 409; em B → 201 | Integração | Vitest | 2 | planejado |
-| T-CON-04 | Busca por nome, e-mail ou empresa, com teto | Bloco 2, item 6 | 101 contatos em A | `GET /contatos?busca=<termo>` | Acha pelos três campos, ordenado por nome, no máximo 100 itens | Integração | Vitest | 2 | planejado |
+| T-CON-01 | CRUD completo de um tenant | Bloco 2, item 6 | tenant A | Criar, ler, alterar, listar e excluir | 201, 200, 200, 200 e 204; depois do DELETE, GET → 404 | Integração | Vitest | 2 | automatizado (`tests/contatos.test.js`; status corrigido em 10/11/2026, era "planejado") |
+| T-CON-02 | Só `nome` é obrigatório | D3 de [`pendencias-bloco-7.md`](pendencias-bloco-7.md) | — | `POST /contatos {"nome":"x"}`; depois sem `nome` | 201; sem nome → 400 | Integração | Vitest | 2 | automatizado (`tests/contatos.test.js`; status corrigido em 10/11/2026, era "planejado") |
+| T-CON-03 | E-mail em minúsculas e único no tenant | Regra 8 | contato `a@x.com` em A | Criar outro com `A@X.com` em A; criar `a@x.com` em B | Em A → 409; em B → 201 | Integração | Vitest | 2 | automatizado (`tests/contatos.test.js`; status corrigido em 10/11/2026, era "planejado") |
+| T-CON-04 | Busca por nome, e-mail ou empresa, com teto | Bloco 2, item 6 | 101 contatos em A | `GET /contatos?busca=<termo>` | Acha pelos três campos, ordenado por nome, no máximo 100 itens | Integração | Vitest | 2 | automatizado (`tests/contatos.test.js`; status corrigido em 10/11/2026, era "planejado") |
 
 ### 2.5 Importação — bloco 4, `tests/importacao.test.js` e `tests/idempotencia.test.js`
 
@@ -233,11 +242,11 @@ se falhar, o relatório diz que falhou e propõe a causa (regra do bloco 9).
 | T-CQ01-01 | Vizinho barulhento **com** a mitigação | CQ-01; ADR-003 | `IMPORT_LOTE=100`, `IMPORT_PAUSA_MS=500`; setup cria 1 tenant equipe (o barulhento, no papel da TechConsult; **não** a conta de demonstração do seed) e 10 individuais com 50 contatos cada | Barulhento: 3 importações de **5.000 linhas** (limite do plano Equipe; "500 ou mais" do CQ-01), uma a cada 20 s, com linhas curtas (~50 bytes, como no T-IMP-06) e e-mails diferentes em cada importação; para cada uma, registra a **janela** (do `POST /importacoes` até o `GET /importacoes/:id` devolver `concluida` ou `falhou`). Observadores: 10 VUs, `GET /contatos?busca=` a cada 3 s, por 2 min | **Aprovação (decisão 4):** buscas dos observadores que **começaram dentro de uma janela** com **p95 < 800 ms** e **máx < 2 s** (é o que o CQ-01 descreve: "durante uma importação"). O relatório mostra ao lado o p95 **geral** dos observadores e o **n** de cada grupo. **0 falhas** no total (`http_req_failed rate == 0`) | Carga | k6 | 9 | **aprovado em 08/11/2026** ([relatório](ensaios/cq01-2026-11-08.md)): com o Postgres do tamanho de produção (1 vCPU, 2 GB; `medir-cq01.ps1 -RecursosProducao`), na janela n = 216, p95 5,1 ms, máx 7,7 ms, 0 falhas em 400. Na máquina de desenvolvimento sem limite: p95 4,7 ms, máx 5,9 ms |
 | T-CQ01-02 | Mesma carga **sem** a mitigação | CQ-01 (comparação) | `IMPORT_LOTE=5000`, `IMPORT_PAUSA_MS=0` | Igual ao T-CQ01-01 | Sem critério de aprovação: registrar p50/p95/p99/máx, na janela e no geral, com o n de cada grupo, para comparar com T-CQ01-01 em `docs/ensaios/cq01-<data>.md` | Carga | k6 | 9 | **registrado em 08/11/2026** ([relatório](ensaios/cq01-2026-11-08.md)): na janela n = 10 (< 20, só registro); máx na janela 5,6 ms (Postgres de produção) e 4,7 ms (dev). Sem diferença medível para o T-CQ01-01 nas duas situações: virou gatilho de revisão do ADR-003 (decisão mantida) |
 | T-CQ03-01 | Onboarding self-service | CQ-03 | Mailpit no Compose | 20 cadastros; medir do POST até a mensagem aparecer na API do Mailpit | **p90 < 45 s** (p90 de 20 = 18º valor ordenado); 0 ações manuais; imprime p50, p90 e máximo | Integração | Vitest | 10 | **automatizado** (`tests/cq03-onboarding.test.js`); 08/11/2026: p50 0,05 s, p90 0,06 a 0,15 s, máx 0,16 s ([relatório](ensaios/cq03-2026-11-08.md)) |
-| T-CQ04-01 | Medição de disponibilidade | CQ-04 | stack no ar | `scripts/sonda.ps1 -Minutos 60 -IntervaloSegundos 15`: `/saude` a cada 15 s por 60 min = **240 amostras** (decisão 7) | CSV com data, status e latência; % de sucesso e pior latência. **≥ 99,5%** = no máximo 1 falha em 240. Prova o **método**, não a disponibilidade do mês (conta e limitação na seção 4) | Ensaio operacional | PowerShell | 11 | planejado |
+| T-CQ04-01 | Medição de disponibilidade | CQ-04 | stack no ar | `scripts/sonda.ps1 -Minutos 60 -IntervaloSegundos 15`: `/saude` a cada 15 s por 60 min = **240 amostras** (decisão 7) | CSV com data, status e latência; % de sucesso e pior latência. **≥ 99,5%** = no máximo 1 falha em 240. Prova o **método**, não a disponibilidade do mês (conta e limitação na seção 4) | Ensaio operacional | PowerShell | 11 | **executado em 09/11/2026** ([relatório](ensaios/cq04-2026-11-09.md)): 240 de 240 amostras com sucesso, 0 falhas, 0 perdidas = 100,00%; mediana 7,3 ms, p95 17,9 ms, pior 208,2 ms. Prova o método, não o mês (L2) |
 | T-CQ04-02 | Deploy sem parada | CQ-04 ("deploy sem downtime") | kind com 2 réplicas da API | Sonda a cada 1 s enquanto roda `kubectl rollout restart deployment/api-contatos -n orbitati` | 0 respostas 5xx ou timeout. **Proposta nova** (seção 5) | Ensaio operacional | PowerShell + kubectl | 6 | **executado em 08/11/2026 (bloco 6):** **113 de 113** respostas 200 em 45 s durante o `rollout restart` das 2 réplicas, 0 falha. Sonda a cada ~0,4 s (pausa de 100 ms + tempo do `curl`), mais densa que o 1 s pedido. Graças ao `preStop: sleep 5` (K4): antes dele, o seed logo depois do rollout falhou com "API fora do ar" e uma sonda igual registrou 9 falhas de conexão. O `scripts/sonda.ps1` do T-CQ04-01 (bloco 11) ainda não existe: a sonda foi um laço de `curl.exe`. **Repetido em 09/11/2026 (bloco 13, Fase 6) para o `deployment/web`** (nginx do Portal, agora na 30080): a sonda a 1 s deu 120/120 com e sem `preStop` (não tem resolução para um rollout); num laço denso de `curl`, **sem** `preStop` 4 de 4 rodadas falharam (7 a 12 falhas cada), **com** `preStop` 4 de 5 rodadas sem nenhuma falha (818/818) e 1 rodada com 10 falhas. **Explicada na repetição de 10/11/2026 (bloco 14)**, com hora em cada requisição e `get pods -w`: as falhas vinham do último pod da troca anterior, **sem** `preStop`, que ainda saía quando o `rollout status` retornou; com `preStop`, 3 de 3 rodadas sem falha depois do restart (1.195/1.195) ([relatório](ensaios/cq04-02-web-2026-11-09.md)) |
-| T-CQ05-01 | Restauração cronometrada | CQ-05 | backup recente (`scripts/backup.ps1`) | `scripts/ensaio-restauracao.ps1` em container `postgres-ensaio` separado | Restauração ≤ 30 min e verificação ≤ 60 min (orçamento do CQ-05); somadas aos 45 min de detecção e decisão, total ≤ **4 h**. O relatório declara que o RPO de 15 min **não** é medido localmente (decisão 8, L3) | Ensaio operacional | PowerShell | 11 | planejado |
-| T-CQ05-02 | Integridade da cópia restaurada | CQ-05 | T-CQ05-01 | Comparar origem e cópia | Contagem igual em todas as tabelas; políticas em `pg_policies`; `FORCE` ativo; nenhum papel de aplicação com BYPASSRLS. Qualquer divergência reprova | Ensaio operacional | PowerShell | 11 | planejado |
-| T-CQ05-03 | Restaurar um tenant só | ADR-001 (consequência negativa) | T-CQ05-01 | `scripts/restaurar-um-tenant.ps1 -Email <admin>` | CSV só com linhas daquele `tenant_id`; contagem igual à da origem para o tenant | Ensaio operacional | PowerShell | 11 | planejado |
+| T-CQ05-01 | Restauração cronometrada | CQ-05 | backup recente (`scripts/backup.ps1`) | `scripts/ensaio-restauracao.ps1` em container `postgres-ensaio` separado | Restauração ≤ 30 min e verificação ≤ 60 min (orçamento do CQ-05); somadas aos 45 min de detecção e decisão, total ≤ **4 h**. O relatório declara que o RPO de 15 min **não** é medido localmente (decisão 8, L3) | Ensaio operacional | PowerShell | 11 | **executado em 08/11/2026** ([relatório](ensaios/cq05-2026-11-08.md)): restauração + verificação em **4,0 s** (16.227 contatos, 22 MB) contra 4 h; RPO não provado (ressalva 1 do relatório) |
+| T-CQ05-02 | Integridade da cópia restaurada | CQ-05 | T-CQ05-01 | Comparar origem e cópia | Contagem igual em todas as tabelas; políticas em `pg_policies`; `FORCE` ativo; nenhum papel de aplicação com BYPASSRLS. Qualquer divergência reprova | Ensaio operacional | PowerShell | 11 | **executado em 08/11/2026** ([relatório](ensaios/cq05-2026-11-08.md)): 18 de 18 verificações OK |
+| T-CQ05-03 | Restaurar um tenant só | ADR-001 (consequência negativa) | T-CQ05-01 | `scripts/restaurar-um-tenant.ps1 -Email <admin>` | CSV só com linhas daquele `tenant_id`; contagem igual à da origem para o tenant | Ensaio operacional | PowerShell | 11 | **executado em 08/11/2026** ([relatório](ensaios/cq05-2026-11-08.md)): dois tenants extraídos, 0 linhas de outros tenants visíveis; prova de ponta a ponta na DevSolo (contato apagado voltou pela importação, sem duplicar) |
 
 ### 2.10 Produto e LGPD — blocos 12, 13 e 14
 
@@ -270,7 +279,7 @@ se falhar, o relatório diz que falhou e propõe a causa (regra do bloco 9).
 | Cenário | Medida | Testes |
 |---|---|---|
 | CQ-01 — vizinho barulhento | p95 < 800 ms; p100 < 2 s; 0 erros 5xx | T-CQ01-01, T-CQ01-02; apoio: T-IMP-13 (pausa), T-IMP-08 (simultâneas), T-RL-01 |
-| CQ-02 — isolamento | 100% das tentativas → 404; 100% das rotas; build falha | T-ISO-01 a T-ISO-19, T-IMP-02, T-RLS-01 a T-RLS-16; pela tela: T-WEB-04 |
+| CQ-02 — isolamento | 100% das tentativas → 404; 100% das rotas; build falha | T-ISO-01 a T-ISO-19, T-IMP-02, T-RLS-01 a ~~T-RLS-16~~ T-RLS-21 (10/11/2026: o 18 a 21 vieram depois); pela tela: T-WEB-04 |
 | CQ-03 — onboarding | p90 < 45 s; 0 ações manuais | T-CQ03-01, T-AUTH-01, T-AUTH-09, T-AUTH-13, T-RES-06 |
 | CQ-04 — disponibilidade | 99,5% em horário comercial; ≤ 79 min/mês | T-CQ04-01, T-CQ04-02; apoio: T-RES-01, T-RES-04, T-RES-07 |
 | CQ-05 — recuperação | RPO ≤ 15 min; RTO ≤ 4 h | T-CQ05-01, T-CQ05-02, T-CQ05-03 (só RTO; o RPO não é testado, ver lacunas) |
@@ -279,7 +288,7 @@ se falhar, o relatório diz que falhou e propõe a causa (regra do bloco 9).
 
 | ADR | Decisão | Testes |
 |---|---|---|
-| [ADR-001](adr/adr-001-tenancy.md) | Pool + RLS com `FORCE` | T-RLS-01 a T-RLS-17, T-CQ05-03 (restore por tenant) |
+| [ADR-001](adr/adr-001-tenancy.md) | Pool + RLS com `FORCE` | T-RLS-01 a ~~T-RLS-17~~ T-RLS-21 (10/11/2026), T-CQ05-03 (restore por tenant) |
 | [ADR-002](adr/adr-002-identidade-tenant.md) | `tenant_id` só no JWT; token de 15 min | T-ISO-06, 07, 10, 11, 13, 14, 15; T-AUTH-04, 06, 07; T-WEB-01 |
 | [ADR-003](adr/adr-003-processamento-assincrono.md) | Fila, lote de 100, pausa de 500 ms, quota | T-IMP-01, 05, 06, 08, 12, 13, 14; T-RES-01 a 05; T-CQ01-01 e 02 |
 
@@ -336,7 +345,36 @@ Casos que **este plano acrescenta** e que não estão nos prompts dos blocos (co
 T-RLS-06 (DELETE cruzado), T-RLS-13 a 17, T-ISO-05, 06, 07, 12, 15, T-AUTH-03, 07, 08, T-CON-02 a 04,
 T-IMP-03 a 08, 11 a 14, T-RL-02 a 07, T-OBS-01, T-CQ04-02, T-RES-07, T-PROD-03, T-LGPD-01 (T-RL-06 e 07 combinados no plano do bloco 5).
 T-WEB-02 a T-WEB-09 vieram do bloco 13 (Fases 4 e 5) e já estão automatizados contra o simulador do
-contrato; falta rodá-los contra a stack real (Fase 6, ver [`portal-pendencias.md`](portal-pendencias.md)).
+contrato; ~~falta rodá-los contra a stack real (Fase 6, ver [`portal-pendencias.md`](portal-pendencias.md)).~~
+**10/11/2026:** rodados contra a stack real na Fase 6 (compose e kind, 09/11/2026), e o CI roda os E2E
+(`npm run test:e2e`, projeto `e2e` do Playwright) contra a API real no job `api` (`.github/workflows/ci.yml`,
+passo "E2E do Portal contra a API real"). Ficam fora do CI o T-WEB-08 (`npm run capturas`, projeto separado)
+e o T-WEB-09 (Lighthouse), que são rodados à mão.
+
+### 3.6 Onde está cada caso que o arquivo não cita pelo ID
+
+Nota de 10/11/2026 (Bloco 15). A convenção do plano é o arquivo de teste citar o ID. Estes casos são
+executados, mas o ID **não aparece** no arquivo que os executa. Como o código não vai ser alterado agora,
+este mapa é a ligação oficial:
+
+| ID | Arquivo que executa | Como encontrar o caso no arquivo |
+|---|---|---|
+| T-WEB-02 | `web/e2e/fluxo.spec.js` | o único teste do arquivo ("cadastrar → contato só com nome → interação → importar 50 linhas"); o T-WEB-01 é um `test.step` dentro dele |
+| T-WEB-03 | `web/e2e/sessao.spec.js` | `describe('sessão')` |
+| T-WEB-04 | `web/e2e/isolamento.spec.js` | `describe('isolamento visto pela tela')` |
+| T-WEB-05 | `web/e2e/importacao-erros.spec.js` | `describe('erros de importação')` |
+| T-WEB-06 | `web/e2e/nginx.spec.js` (e o teste "arquivo maior que 1 MB pela API" de `importacao-erros.spec.js`) | `describe('nginx do Portal')` |
+| T-WEB-07 | `web/e2e/acessibilidade.spec.js` | "alvos de toque >= 44 px" e "Tab nunca deixa o foco atrás..." |
+| T-WEB-08 | `web/e2e/capturas.spec.js` | projeto `capturas` (`npm run capturas`) |
+| T-WEB-09 | `web/scripts/medir-lighthouse.mjs` | `npm run lighthouse` |
+| T-CQ04-01 | `scripts/sonda.ps1` | relatório [`ensaios/cq04-2026-11-09.md`](ensaios/cq04-2026-11-09.md) |
+| T-CQ04-02 | `scripts/sonda.ps1` (sonda a 1 s) e laço de `curl.exe` descrito no relatório | relatório [`ensaios/cq04-02-web-2026-11-09.md`](ensaios/cq04-02-web-2026-11-09.md) |
+| T-CQ05-01 | `scripts/backup.ps1` + `scripts/ensaio-restauracao.ps1` | relatório [`ensaios/cq05-2026-11-08.md`](ensaios/cq05-2026-11-08.md), seção 3.2 |
+| T-CQ05-02 | `scripts/ensaio-restauracao.ps1` (verificação com `scripts/sql/`) | mesmo relatório, "Verificações (18 de 18 OK)" |
+| T-CQ05-03 | `scripts/restaurar-um-tenant.ps1` | mesmo relatório, seção 3.3 |
+
+O `web/e2e/conta.spec.js` (exportar e cancelar pela tela) apoia o T-LGPD-01 (exportação sem senha) e o
+T-LGPD-02 (a linha do T-LGPD-02 já cita o arquivo).
 
 ---
 
@@ -367,7 +405,7 @@ ou dos prompts dos blocos, e os derivados têm a conta ao lado.
 | Restauração ≤ 30 min, verificação ≤ 60 min | Linhas da tabela do RTO no CQ-05; detecção (15) + decisão (30) = 45 min não são medidos localmente | CQ-05 |
 | 240 amostras da sonda (decisão 7) | 60 min × 60 s ÷ 15 s = 240. A versão anterior (30 min a cada 60 s = 30 amostras) não servia: 1 falha já derrubava para 96,7%. Para que 1 falha pese **no máximo** 0,5%, são precisas 1 ÷ 0,005 = 200 amostras; 240 passa disso. Cada amostra vale 0,42%: 0 falhas = 100%; 1 falha = 99,58% (aprova); 2 falhas = 99,17% (reprova). Cada amostra representa 15 s de serviço | CQ-04 |
 | Limitação das 240 amostras | 0 falhas em 240 **não prova** 99,5%: pela "regra de três" da estatística, com 0 falhas em n amostras o limite superior da taxa de falha (95% de confiança) é 3 ÷ n = 3 ÷ 240 = 1,25%. Provar 99,5% com 0 falhas exigiria 3 ÷ 0,005 = 600 amostras (150 min a cada 15 s). E 60 min não representam o mês: o mês comercial tem 12 h × 22 dias = 264 h, e 0,5% disso são 79 min (os do CQ-04). O ensaio prova o **método**; a medida real é a sonda rodando o mês em produção (L2) | CQ-04 |
-| 24 casos do CQ-02 | 12 rotas do C4 × 2; na Etapa 2 são 8 rotas, todas cobertas (seção 2.2) | CQ-02 |
+| 24 casos do CQ-02 | 12 rotas do C4 × 2; ~~na Etapa 2 são 8 rotas~~ na Etapa 2 eram 10 rotas com dado de tenant (seção 2.2); hoje (10/11/2026, Bloco 15) são 15 das 21 rotas, todas cobertas pelo T-ISO-15 (ver nota do CQ-02 em [`atributos.md`](atributos.md#cq-02)) | CQ-02 |
 
 ---
 

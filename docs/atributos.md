@@ -5,6 +5,12 @@
 
 Cinco cenários no formato estímulo → resposta. Cada número traz a conta que o produziu; nenhum foi arbitrado. As personas e volumes citados vêm de [`01-visao-produto.md`](01-visao-produto.md).
 
+> **Nota de revisão — 10/11/2026 (Bloco 15).** Os cenários e as metas **não mudaram**. Foram acrescentados o
+> **resultado medido** de CQ-01, CQ-04 (e T-CQ04-02) e CQ-05, com o link do relatório em [`ensaios/`](ensaios/),
+> e corrigidos fatos que ficaram velhos: a pasta `tests/carga/` já existe (CQ-01); o ensaio do CQ-01 mede só a
+> **busca** (`GET /contatos?busca=`), não a listagem; o cadastro **não** semeia configuração inicial (CQ-03); e
+> a contagem de rotas e o bloqueio do merge no CQ-02. Frases antigas que ficaram erradas estão ~~tachadas~~.
+
 | ID | Atributo | Resumo | Medida |
 |---|---|---|---|
 | [CQ-01](#cq-01) | Desempenho | Importação de um tenant não degrada os outros | p95 < 800 ms |
@@ -56,10 +62,21 @@ A importação vira uma sequência de rajadas curtas com o banco livre no interv
 
 Teste de carga antes de cada entrega de etapa: um tenant sintético importa 500 contatos enquanto 10 tenants virtuais executam busca a cada 3 segundos. Coleta-se o histograma de latência dos 10 tenants observadores. **Falha se o p95 passar de 800 ms.**
 
-**Como a medida é feita na prática** (decisão P4, 08/11/2026; o script k6 do bloco 9 fica em `tests/carga/`, ainda não criado):
+**Como a medida é feita na prática** (decisão P4, 08/11/2026; o script k6 do bloco 9 fica em `tests/carga/`, ~~ainda não criado~~ — **criado no bloco 9**: `cq01.js` (cenários), `janelas.js` (veredito "na janela" × "geral"), `janelas.test.js` e `resultados/`; roda com `scripts/medir-cq01.ps1`):
 
 - **Medida nas janelas de importação:** o p95 que aprova ou reprova é o das buscas feitas **durante** as importações, separado do p95 geral do teste. Misturar as buscas de antes e de depois diluiria o efeito do vizinho barulhento.
 - **Importações de 5.000 linhas:** o tenant barulhento faz 3 importações de 5.000 linhas cada (plano Equipe), com linhas curtas, para que a janela tenha ≈ 200 buscas em vez de 20 a 50.
+- **Só a busca é medida** (nota de 10/11/2026): o cenário fala em "busca e listagem", mas os observadores do k6 fazem apenas `GET /contatos?busca=cliente` (`tests/carga/cq01.js`). A listagem sem filtro (`GET /contatos`) não foi medida separadamente; é a mesma rota, sem o filtro de texto.
+
+**Resultado medido** (08/11/2026, [`ensaios/cq01-2026-11-08.md`](ensaios/cq01-2026-11-08.md)):
+
+| Situação | Buscas na janela (n) | p95 na janela | Máximo na janela | Veredito |
+|---|---|---|---|---|
+| Com a mitigação, Postgres do tamanho de produção (1 vCPU, 2 GB) | 216 | **5,1 ms** | 7,7 ms | **Passou** (< 800 ms e < 2 s; 0 falhas em 400 buscas) |
+| Com a mitigação, máquina de desenvolvimento (Postgres sem limite) | ver relatório | 4,7 ms | 5,9 ms | Passou |
+| Sem a mitigação (`IMPORT_LOTE=5000`, pausa 0) | 10 (< 20, só registro) | — | 5,6 ms (produção) · 4,7 ms (dev) | Sem critério |
+
+Ressalvas do próprio relatório: **a mitigação não fez diferença medível** neste volume (os máximos com e sem ela estão na faixa do ruído) e tem custo (5.000 linhas levam ~25 s em vez de menos de 1 s); isso virou gatilho de revisão do ADR-003, sem mudar a decisão. O ensaio roda numa máquina só (Docker Desktop), não em produção.
 
 ---
 
@@ -96,6 +113,8 @@ Isolamento é o único atributo deste documento que não admite percentil. Um va
 | **Casos mínimos** | **24**, crescendo com cada rota nova |
 | Gatilho de execução | Todo push; build vermelha bloqueia merge |
 
+**Situação real** (nota de 10/11/2026): a API registra hoje **21 rotas** (sem contar HEAD): **15 com dado de tenant** (9 com `:id` e 6 sem) e **6 públicas** (`GET /saude`, `GET /planos`, `POST /auth/cadastro`, `POST /auth/login`, `GET /auth/confirmar`, `GET /conta/exportacao/arquivo`). As 15 estão na tabela de `tests/isolamento.test.js`, e o T-ISO-15 falha se aparecer rota fora dela: 100% das rotas cobertas. A conta de 24 casos acima é a projeção da Etapa 1 (12 rotas do C4); o caso de cada rota está no [`plano-de-testes.md`](plano-de-testes.md), seção 2.2. **"Build vermelha bloqueia merge"** não vem só do CI: depende da regra de proteção do `main` no GitHub (checks `api` e `web` obrigatórios), **ativada em 08/11/2026** e testada no PR #12. A build vermelha com rota proibida foi demonstrada no T-ISO-14.
+
 Um teste adicional varre a definição das rotas e falha se algum parâmetro chamado `tenant_id` aparecer em rota, query string ou corpo — a regra do [`adr/adr-002-identidade-tenant.md`](adr/adr-002-identidade-tenant.md) verificada por máquina, não por revisão humana.
 
 ### Como é atingido
@@ -115,7 +134,7 @@ Três camadas sobrepostas, detalhadas em [`02-arquitetura-c4.md`](02-arquitetura
 | Estímulo | Envio do formulário de cadastro |
 | Artefato | API REST, PostgreSQL, Fila de Trabalhos, Serviço de Notificações |
 | Ambiente | Operação normal, qualquer horário, inclusive fora do expediente |
-| Resposta | Tenant criado, usuário admin criado, configuração inicial semeada, e-mail entregue |
+| Resposta | Tenant criado, usuário admin criado, ~~configuração inicial semeada,~~ e-mail entregue |
 | **Medida** | **p90 < 45 s; 0 ações manuais; 0 tickets abertos para concluir cadastro** |
 
 ### De onde vem o 45 s
@@ -125,13 +144,15 @@ Soma dos tempos de cada etapa, com margem declarada:
 | Etapa | Tempo |
 |---|---|
 | `INSERT` do tenant + usuário admin | 0,20 s |
-| Seed de configuração inicial | 0,10 s |
+| ~~Seed de configuração inicial~~ | ~~0,10 s~~ (ver nota abaixo) |
 | Enfileirar o job de e-mail | 0,01 s |
 | Worker retirar o job da fila | 1,00 s |
 | Entrega pelo provedor de e-mail (p90 do mercado) | 30,00 s |
 | **Subtotal** | **31,31 s** |
 | Margem de 44% para variação do provedor | +13,69 s |
 | **Alvo** | **45 s** |
+
+> **Nota de 10/11/2026 (Bloco 15).** O cadastro **não** semeia configuração inicial: `POST /auth/cadastro` (`services/api-contatos/src/rotas/auth.js`) só insere o tenant e o usuário admin, numa transação, e depois enfileira o e-mail. Planos e limites ficam em `planos.js`, não em linhas por tenant. Os 0,10 s saem da conta e viram folga: subtotal de 31,21 s, margem de 13,79 s, e o **alvo continua 45 s**. A parte controlada pela arquitetura cai de 1,31 s para 1,21 s; o argumento abaixo não muda.
 
 Repare que 96% do orçamento é do provedor de e-mail, que não controlamos. O que a arquitetura controla — os passos no banco e na fila — soma 1,31 s. Esse é justamente o argumento do [`adr/adr-001-tenancy.md`](adr/adr-001-tenancy.md): em pool, criar um tenant é um INSERT. Em silo seria provisionar uma instância, e o gargalo mudaria de lado.
 
@@ -189,6 +210,13 @@ Sonda externa a cada 60 s contra um endpoint de saúde que toca o banco, com apu
 - **Por que 15 s:** com 60 s, uma hora de ensaio daria só 60 amostras, e uma única falha já seria 1,7%.
 - **Limite declarado:** 0 falhas em 240 amostras não provam 99,5%. Com 95% de confiança, o máximo que se pode afirmar é uma taxa de falha abaixo de 3 ÷ 240 = 1,25% (regra dos três). O número de verdade vem da sonda de um mês em produção.
 
+**Resultado medido** (09/11/2026, [`ensaios/cq04-2026-11-09.md`](ensaios/cq04-2026-11-09.md)): `scripts/sonda.ps1` contra a API no kind (2 réplicas), das 19:20 às 20:20: **240 de 240 amostras com sucesso, 0 falhas, 0 perdidas = 100,00%** (critério ≥ 99,5%). Latência: mediana 7,3 ms, p95 17,9 ms, pior caso 208,2 ms. Ressalvas do relatório: prova o **método**, não os 99,5% do mês (1 h de 264 h; pela regra dos três, os dados ainda são compatíveis com 98,75%), e roda na máquina de desenvolvimento, não em produção.
+
+**Deploy sem parada (T-CQ04-02)** — [`ensaios/cq04-02-web-2026-11-09.md`](ensaios/cq04-02-web-2026-11-09.md) e linha T-CQ04-02 do [`plano-de-testes.md`](plano-de-testes.md):
+
+- **API (08/11/2026, bloco 6):** 113 de 113 respostas 200 durante o `rollout restart` das 2 réplicas, graças ao `preStop: sleep 5`. Antes dele, uma sonda igual registrou 9 falhas de conexão.
+- **Portal/nginx (09 e 10/11/2026):** a sonda a 1 s deu 120/120 com e sem `preStop` (não tem resolução para um rollout). Num laço denso de `curl`, **sem** `preStop` 4 de 4 rodadas tiveram falhas; **com** `preStop`, depois de explicada a rodada com falhas de 09/11 (vinham do último pod da troca anterior, ainda sem `preStop`), 3 de 3 rodadas sem falha (1.195/1.195).
+
 ---
 
 <a id="cq-05"></a>
@@ -239,6 +267,11 @@ Restaurar um tenant específico é mais trabalhoso em pool do que em silo — ex
 Ensaio trimestral de restauração completa em ambiente separado, cronometrado, com o resultado registrado em `docs/ensaios/`. **Falha se o RTO medido passar de 4 h ou se a verificação de integridade apontar divergência.**
 
 **Limitação do ensaio local** (decisão P8, 08/11/2026): o RPO de 15 min depende de arquivamento contínuo de WAL, que é recurso do banco gerenciado em produção. O ensaio local prova o procedimento de restauração e o RTO; **o RPO é garantido pelo provedor do banco gerenciado e não é ensaiado localmente**.
+
+**Resultado medido** (08/11/2026, [`ensaios/cq05-2026-11-08.md`](ensaios/cq05-2026-11-08.md)): backup com `scripts/backup.ps1` e restauração da base inteira num contêiner separado com `scripts/ensaio-restauracao.ps1`: **4,0 s** para restaurar e verificar (16.227 contatos, banco de 22 MB), contra o RTO de 4 h = 14.400 s; **18 de 18 verificações de integridade OK** (linhas por tabela, `ENABLE` + `FORCE`, políticas, papéis). Restauração de **um** tenant (`scripts/restaurar-um-tenant.ps1`) provada de ponta a ponta: o contato apagado voltou pela API, sem duplicar, e 0 contatos de outros tenants visíveis na extração. Ressalvas do relatório:
+
+- **RPO não provado:** o `pg_dump` é uma foto de um instante; com um dump por dia o RPO real seria de até 24 h. Os 15 min dependem de WAL contínuo e PITR do banco gerenciado.
+- **O RTO medido não inclui as pessoas:** os 4,0 s são só restore + verificação. Perceber o problema, decidir, criar a instância nova e reapontar a API não foram medidos.
 
 ---
 

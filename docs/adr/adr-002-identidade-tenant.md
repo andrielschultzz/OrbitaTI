@@ -7,6 +7,7 @@
 | **Decisores** | Andriel Schultz, Cristofer Mateus Rutzen |
 | **Depende de** | [ADR-001 — Pool com RLS](adr-001-tenancy.md) |
 | **Revisão** | 08/11/2026 (Bloco 7): sem refresh token e sem denylist (decisão 9); exceção única do login; segredo próprio para o token de serviço. A decisão central não mudou |
+| **Revisão** | 10/11/2026 (Bloco 15): claim `papel` no exemplo do JWT; as exceções ao RLS são duas funções, não uma (nota abaixo). A decisão central não mudou |
 
 ---
 
@@ -51,13 +52,20 @@ Contra a opção B, o argumento é o do ADR-001: não abrimos um caminho que ign
 ```
 Login  →  valida credenciais  →  emite JWT
                                  { sub: "u-abc", tenant_id: "t-xyz",
-                                   plano: "equipe", exp: ... }
+                                   plano: "equipe", papel: "admin", exp: ... }
 
 Requisição  →  Middleware de Autenticação   valida assinatura
             →  Resolvedor de Tenant         lê o claim, fixa no contexto
             →  Acesso a Dados               set_config('app.tenant_id', $1, true)
             →  PostgreSQL                   RLS filtra
 ```
+
+> **Nota de 10/11/2026 (Bloco 15): o claim `papel` faltava no exemplo.** O token de sessão leva quatro claims
+> próprios: `sub`, `tenant_id`, `plano` e `papel` (`admin`, `consultor` ou `visualizador`). O `papel` é
+> **obrigatório**: `services/api-contatos/src/autenticacao.js` recusa (401) token sem um papel válido, e é por
+> ele que as rotas de `/conta` respondem 403 a quem não é admin. O `plano` decide o rate limit
+> (`planos.js`). Os dois são gravados pela API no login e no cadastro (`rotas/auth.js`), nunca pelo cliente,
+> pelo mesmo motivo do `tenant_id`.
 
 Rotas ficam assim:
 
@@ -77,7 +85,7 @@ GET /api/tenants/{id}/contatos  ← proibido: não existe no produto
 > - **Por que é aceitável agora:** o Portal é usado em sessões curtas (a DevSolo abre o app entre dois atendimentos), e hoje não existe convite nem remoção de usuário (contrato, seção 10). A janela de 15 min só aparece no cancelamento da conta, feito pelo próprio admin.
 > - **Gatilhos de revisão:** reclamação de usuário sobre login frequente; primeiro cliente com rotatividade de equipe que exija corte imediato de acesso; o Portal passar a ter sessões longas de trabalho contínuo.
 
-**A exceção única: o login.** No login, a API ainda não sabe o tenant, e o RLS esconde a tabela `usuarios` de uma sessão sem tenant. A busca da credencial passa pela função `orbita.buscar_credencial(email)`, cujo dono é o papel `orbita_auth`: `BYPASSRLS`, sem login (`NOLOGIN`), dono só dessa função. Ela é a **única** exceção controlada, e é diferente da opção B rejeitada acima:
+**A exceção ~~única~~: o login** (desde 10/11 são duas, ver nota abaixo). No login, a API ainda não sabe o tenant, e o RLS esconde a tabela `usuarios` de uma sessão sem tenant. A busca da credencial passa pela função `orbita.buscar_credencial(email)`, cujo dono é o papel `orbita_auth`: `BYPASSRLS`, sem login (`NOLOGIN`), ~~dono só dessa função~~ (ver nota de 10/11). Ela é ~~a **única** exceção controlada~~ uma das duas exceções controladas, e é diferente da opção B rejeitada acima:
 
 - roda **só no login**, não em toda requisição;
 - devolve só o necessário para conferir a senha e montar o token (T-RLS-09);
@@ -86,13 +94,23 @@ GET /api/tenants/{id}/contatos  ← proibido: não existe no produto
 
 O e-mail do usuário é único na base inteira (T-RLS-12), porque o login acha o usuário só pelo e-mail.
 
+> **Nota de revisão — 10/11/2026 (Bloco 15): a segunda exceção.** Desde `db/migrations/004_exclusao.sql`
+> (bloco 14, LGPD), o `orbita_auth` também é dono de `orbita.tenants_para_excluir()`. São, portanto, **duas
+> funções `SECURITY DEFINER`, as duas do `orbita_auth`, cada uma devolvendo só o mínimo**: a credencial de um
+> e-mail (login) e os ids dos tenants cancelados há mais de 30 dias (exclusão). A segunda existe porque o job
+> diário de exclusão precisa saber **quais** tenants apagar antes de ter um tenant no contexto, e sem tenant o
+> RLS esconde todo `orbita.tenants`. Ela segue as mesmas quatro regras da lista acima: roda uma vez por dia (não
+> em toda requisição), devolve só ids, `EXECUTE` só para `api_contatos` e nada para `PUBLIC`. A apagação em si
+> roda sob RLS, com `withTenant(id)`. Detalhes e o porquê de os comentários antigos do banco não serem editados:
+> [ADR-001](adr-001-tenancy.md), nota de 10/11.
+
 **Token de serviço.** O Serviço de Importação chama a API com um token próprio, assinado com outro segredo (`JWT_SERVICO_SEGREDO`), que só abre as rotas `/interno` e vale 60 s. O tenant vai no claim `tenant_id` desse token, nunca em parâmetro. O porquê dos dois segredos está no [`adr-004-comunicacao-entre-servicos.md`](adr-004-comunicacao-entre-servicos.md).
 
 ## Consequências
 
 ### Positivas
 
-O isolamento não depende de disciplina de código: a informação perigosa não chega à camada de rota. Não há query extra por requisição, e o único caminho que contorna o RLS é a função de login, que roda uma vez por sessão e não em toda requisição. Testar isolamento fica simples — basta autenticar como tenant A e tentar acessar um recurso conhecido do tenant B por ID direto, que é exatamente o que o cenário CQ-02 faz.
+O isolamento não depende de disciplina de código: a informação perigosa não chega à camada de rota. Não há query extra por requisição, e ~~o único caminho que contorna o RLS é a função de login, que roda uma vez por sessão~~ os dois caminhos que contornam o RLS são a função de login, que roda uma vez por sessão, e a lista de tenants a excluir, que roda uma vez por dia (nota de 10/11) — nenhum deles roda em toda requisição. Testar isolamento fica simples — basta autenticar como tenant A e tentar acessar um recurso conhecido do tenant B por ID direto, que é exatamente o que o cenário CQ-02 faz.
 
 ### Negativas
 

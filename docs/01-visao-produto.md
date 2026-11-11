@@ -89,13 +89,19 @@ Essa escolha tem uma consequência que atravessa toda a arquitetura e reaparece 
 | Plano | Preço | Usuários | Limites principais |
 |---|---|---|---|
 | **Individual** | R$ 49/mês | 1 | Histórico de interações de 6 meses; importação de até 100 linhas por arquivo, 2 importações ao mesmo tempo; 60 requisições por minuto; geração manual de até 10 propostas/mês |
-| **Equipe** | R$ 249/mês | até 10 | Histórico completo; importação de até 5.000 linhas por arquivo, 5 importações ao mesmo tempo; 600 requisições por minuto (10 usuários × 60); geração automática de propostas por evento; API REST e webhooks |
+| **Equipe** | R$ 249/mês | até 10 (no semestre, 1: convite fora do escopo, ver abaixo) | Histórico completo; importação de até 5.000 linhas por arquivo, 5 importações ao mesmo tempo; 600 requisições por minuto (10 usuários × 60); geração automática de propostas por evento; API REST e webhooks |
 
 **Na implementação do semestre** (revisão de 08/11/2026):
 
 - **Onde ficam os números:** os limites de importação e de requisições estão em `services/api-contatos/src/planos.js`, expostos em `GET /planos`.
 - **Limite de 1 MB:** vale nos dois planos, junto com o limite de linhas. As 5.000 linhas vêm de 1 MB ÷ ~200 bytes por linha, conta no [ADR-004](adr/adr-004-comunicacao-entre-servicos.md).
 - **Fora do escopo do semestre:** histórico limitado a 6 meses, propostas em PDF e webhooks ([`contrato-api.md`](contrato-api.md), seção 10).
+- **Fora do escopo do semestre (revisão de 10/11/2026, Bloco 15): convite de usuários.** O plano Equipe promete
+  "até 10 usuários", mas não existe rota de convite: hoje todo tenant tem **1 usuário**, o `admin` criado no
+  cadastro ([`contrato-api.md`](contrato-api.md), seção 10). Os limites que dependem do número de usuários já
+  estão prontos para quando o convite existir: o rate limit do plano é calculado como usuários × 60
+  (Equipe: 10 × 60 = 600 req/min, em `services/api-contatos/src/planos.js`). Até lá, o limite do Equipe é só
+  folga: um usuário sozinho dificilmente chega a 600 requisições por minuto.
 
 Premissa de mix declarada, usada no ADR de tenancy: **45 tenants em 12 meses, 80% no Individual e 20% no Equipe**, resultando em R$ 4.005/mês de receita recorrente. A faixa projetada é de 30 a 50 tenants; 45 é o ponto de trabalho.
 

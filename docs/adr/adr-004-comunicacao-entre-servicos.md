@@ -7,6 +7,7 @@
 | **Decisores** | Andriel Schultz, Cristofer Mateus Rutzen |
 | **Depende de** | [ADR-001 — Pool com RLS](adr-001-tenancy.md), [ADR-002 — Tenant no JWT](adr-002-identidade-tenant.md), [ADR-003 — Fila, lote e quota](adr-003-processamento-assincrono.md) |
 | **Revisa** | ADR-003: o intervalo de 5 min entre jobs, o limite de 100 linhas para todos os planos, o CSV no S3 e o worker gravando direto no banco |
+| **Revisão** | 10/11/2026 (Bloco 15): e-mail do cancelamento (enfileirado dentro da transação), fila `exclusao-tenants`, limite do link de exportação no risco K2, stack atual, `demo-degradacao.ps1` com o T-RES-06; VM e SMTP real fora do escopo (D-15.1). Nenhuma decisão mudou |
 
 ---
 
@@ -251,7 +252,32 @@ deste ADR**: é a opção 1B (fila) para um segundo consumidor.
 | Worker | `concurrency: 5`, nodemailer, SMTP do Mailpit (local e kind) | O trabalho é esperar a rede, não CPU nem banco. Dado inválido é `UnrecoverableError`: não tenta de novo |
 | Token do link | JWT com `JWT_SEGREDO`, 24 h, `finalidade: "confirmar-email"` | Recusa explícita nos dois lados: o link não abre sessão (T-AUTH-11) e a sessão não confirma e-mail (T-AUTH-12). Decisão N3 em `pendencias-bloco-7.md` |
 
-**O que falta para a VM:** SMTP do provedor real com autenticação e TLS, e remetente com SPF/DKIM (N4).
+~~**O que falta para a VM:**~~ **Fora do escopo (D-15.1):** SMTP do provedor real com autenticação e TLS, e remetente com SPF/DKIM (N4). A apresentação roda localmente (compose e kind no notebook), com o Mailpit; publicar numa VM ficou fora do escopo ([`../pendencias-bloco-7.md`](../pendencias-bloco-7.md), D-15.1).
+
+> **Nota de revisão — 10/11/2026 (Bloco 15): o segundo e-mail, o do cancelamento, segue a regra oposta.**
+> A tabela acima descreve só o e-mail de confirmação de cadastro. Desde o bloco 14, a mesma fila `emails` leva
+> também o link de exportação enviado no `POST /conta/cancelamento` (`services/api-contatos/src/rotas/conta.js`),
+> e ele se comporta **ao contrário** do cadastro:
+>
+> | Ponto | Cadastro (`confirmar-cadastro`) | Cancelamento (`exportacao-disponivel`) |
+> |---|---|---|
+> | Quando enfileira | **Depois do COMMIT** | **Dentro da transação**, antes do COMMIT |
+> | Fila fora | 201 e `warn` `email_nao_enfileirado`: o cadastro conclui | **503 `FILA_INDISPONIVEL`** e o ROLLBACK desfaz o cancelamento: nada muda (log `cancelamento_sem_fila`) |
+> | `jobId` | `confirmar-cadastro-<usuario_id>` (fixo) | `exportacao-<tenant_id>-<uuid>`: novo a cada pedido. Cancelar de novo = pedir o link de novo (com id fixo, um envio que falhou ficaria 24 h no Redis e o BullMQ ignoraria o pedido seguinte em silêncio, como na N9) |
+> | Payload | `{tipo, para, nome, link, request_id, tenant_id}` | O mesmo, mais `disponivel_ate` (`cancelado_em + 30 dias`), que o e-mail mostra |
+> | Opções do job | 5 tentativas, backoff de 2 s, `removeOnComplete`, falha 24 h | As mesmas |
+>
+> **Por que a regra se inverte:**
+>
+> - **No cadastro, o e-mail é conveniência.** O login não exige confirmação. Travar o onboarding porque o Redis
+>   caiu trocaria um e-mail atrasado por um cliente perdido (CQ-03, T-RES-06).
+> - **No cancelamento, o e-mail é o único caminho até os dados.** Depois de cancelar, o login é recusado
+>   (`buscar_credencial` filtra `cancelado_em IS NULL`). O link do e-mail é a única forma de o cliente baixar a
+>   exportação nos 30 dias antes da exclusão (LGPD). Cancelar sem o e-mail deixaria o cliente sem os próprios
+>   dados, então o cancelamento não pode concluir sem ele.
+> - **Risco aceito (registrado no código):** o COMMIT falhar **depois** do enfileiramento. Sai um e-mail com um
+>   link que funciona para uma conta que não foi cancelada. É raro e não vaza nada: o link só exporta os dados
+>   do próprio tenant, para o próprio admin.
 
 ### Exclusão de tenant: API → Importação (bloco 14, 10/11/2026)
 
@@ -260,7 +286,7 @@ Segunda fila entre a API e a Importação, pelo mesmo motivo de sempre: **cada s
 
 | Ponto | Como ficou | Por quê |
 |---|---|---|
-| Quem decide | Job diário **na API** (`exclusao.js`), agendador do BullMQ com id fixo `exclusao-diaria` (3 h, São Paulo) | A API é dona de `orbita`, onde está o `cancelado_em`. Id fixo: com 2 réplicas, um agendador só e um job por dia |
+| Quem decide | Job diário **na API** (`exclusao.js`), agendador do BullMQ com id fixo `exclusao-diaria` (3 h, São Paulo) na fila **`exclusao-tenants`**. A própria API é a **consumidora** dessa fila: cada réplica liga um `Worker` BullMQ nela *(nome da fila acrescentado em 10/11/2026, Bloco 15)* | A API é dona de `orbita`, onde está o `cancelado_em`. Id fixo: com 2 réplicas, um agendador só e um job por dia, entregue a um `Worker` só |
 | Quem é excluído | `orbita.tenants_para_excluir()`: `SECURITY DEFINER`, dona `orbita_auth`, `EXECUTE` só para `api_contatos`; devolve só ids | Mesma exceção controlada do login: saber quem apagar exige ler sem tenant fixado |
 | Fila | `exclusao-importacao`, payload `{tenant_id}`, `jobId = excluir-<tenant_id>` | Nenhum dado pessoal no Redis; o id fixo deixa duas execuções seguidas (manual e agendada) sem pedido duplicado |
 | Ordem | A API **enfileira primeiro** e só então apaga `orbita` (tabela por tabela, com `withTenant`) | Na ordem inversa, uma falha no meio deixaria `importacao` órfão para sempre. Assim, a falha só adia para o dia seguinte |
@@ -332,12 +358,13 @@ lado de fora. Atrás do Nginx do Portal, a API só vê o IP do Nginx.
   pelo cliente é ignorado (compose e kind).
 - **Risco aceito K2 do bloco 6, agora só no kind local** (não confundir com a decisão K2 do contrato): no kind
   com Docker Desktop, todos os clientes de `localhost:30080` chegam ao Nginx com o **mesmo IP interno**, e os
-  limites por IP (cadastro 60/min, login 10/min por IP + e-mail, confirmação de e-mail 10/min) somam todo
-  mundo. O Nginx na frente **não** resolve isso, porque a troca de IP acontece antes dele. Medido em
+  limites por IP (cadastro 60/min, login 10/min por IP + e-mail, confirmação de e-mail 10/min e, desde o
+  bloco 14, o link de exportação `GET /conta/exportacao/arquivo`, 10/min, `limite.js` — acrescentado em
+  10/11/2026) somam todo mundo. O Nginx na frente **não** resolve isso, porque a troca de IP acontece antes dele. Medido em
   09/11/2026: com `externalTrafficPolicy: Cluster` o Nginx vê `10.244.0.1` (SNAT do kube-proxy); com `Local`,
   `172.18.0.1` (o gateway da rede `kind`: o encaminhamento de porta do Docker Desktop já troca o IP). Como
   `Local` não trouxe o IP real, o Service ficou no padrão (`Cluster`). Aceitável no laboratório, com um
-  usuário só. **No compose (e na VM) o IP real chega:** a API registrou o IP do cliente, e não o do Nginx.
+  usuário só. **No compose (e na VM, hoje fora do escopo: D-15.1) o IP real chega:** a API registrou o IP do cliente, e não o do Nginx.
 - **Risco aceito J8:** com `TRUST_PROXY_SALTOS=1`, quem já está na rede interna (outro contêiner do compose,
   alguém no host chamando `127.0.0.1:3000`) pode mandar um IP diferente a cada tentativa e ganhar um contador
   de login novo. Quem está de fora não consegue:
@@ -397,12 +424,16 @@ como `erro`. **Implementação pendente** (pendência de código P-3): o Bloco 7
 ### Positivas
 
 - **A Importação pode cair sem derrubar o CRM.** Com o Redis fora, só `POST /importacoes` para (503), e o
-  resto segue. Provado pela `scripts/demo-degradacao.ps1` (T-RES-01 a 05 e 07).
+  resto segue. Provado pela `scripts/demo-degradacao.ps1` (~~T-RES-01 a 05 e 07~~ T-RES-01 a 07, incluindo o
+  06: cadastro com a fila de e-mail fora — corrigido em 10/11/2026).
 - **O worker não tem acesso ao dado de contato por SQL.** O isolamento entre serviços vale também no banco
   (T-RLS-07), não só no código.
 - **Repetir é seguro em qualquer ponto.** Retry, worker que morre e reimportação não duplicam contatos
   (T-IMP-09, T-IMP-14).
 - **Nenhum container a mais para o CSV.** A stack da Etapa 2 é Postgres, Redis, API, worker e migração.
+  *(Nota de 10/11/2026: a frase descreve a stack quando este ADR foi escrito. Hoje há também `notificacoes`
+  e `mailpit` (bloco 10) e `web` (o Portal, bloco 13): 8 contêineres no compose. Nenhum deles é para o CSV,
+  então o ponto continua valendo.)*
 - **A TechConsult migra a planilha de 640 linhas em segundos,** não em 30 minutos, e o CQ-01 continua protegido
   pelo lote, pela pausa e pela `concurrency: 2`.
 

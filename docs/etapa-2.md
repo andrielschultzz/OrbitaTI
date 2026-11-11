@@ -1,7 +1,39 @@
 # Etapa 2 — checklist de evidências
 
 **Unidade:** Andriel Schultz e Cristofer Mateus Rutzen
-**Atualizado em:** 08/11/2026 (Bloco 7)
+**Atualizado em:** 08/11/2026 (Bloco 7); nota de revisão em 10/11/2026 (Bloco 15)
+
+> **Nota de revisão — 10/11/2026 (Bloco 15).** O checklist abaixo é o **registro de 08/11/2026** e foi mantido
+> como estava, com ~~tachado~~ só onde a frase ficou errada. Correções conferidas no código:
+>
+> 1. **T-OBS-02 não está em `tests/observabilidade.test.js`** (itens 1.5 e 4.5). Ele é um **ensaio** com os logs
+>    do compose (importação com `x-request-id: demo-123` e `docker compose logs | Select-String demo-123`),
+>    executado em 08/11/2026. O arquivo cobre só o **T-OBS-01** (o id aceito ou gerado na resposta), e o topo
+>    dele diz isso. Linha do T-OBS-02 em [`plano-de-testes.md`](plano-de-testes.md), seção 2.8.
+> 2. **T-RLS-01 a T-RLS-19** (item 1.6): hoje o [`tests/rls.test.js`](../tests/rls.test.js) vai até o
+>    **T-RLS-21** (o 20 veio no bloco 12, interações; o 21 no bloco 14, exclusão LGPD).
+> 3. **"T-RES-03, 04 e 07 automatizados"** (item 4.1): o T-RES-03 e o T-RES-04 são **ensaios** do
+>    [`scripts/demo-degradacao.ps1`](../scripts/demo-degradacao.ps1) (passos 6 e 7), não testes do `npm test`.
+>    O T-RES-07 é ensaio no kind (`kubectl scale`) e na versão compose (passos 9 e 10 do mesmo script); o que
+>    roda automatizado é só o **apoio unitário** em `services/api-contatos/test/pool-erro.test.js` e
+>    `services/importacao/test/pool-erro.test.js`.
+> 4. **T-RL-01 a 07 "em `tests/rate-limit.test.js`"** (item 4.4): esse arquivo tem o T-RL-01, 03, 05 e 06. O
+>    **T-RL-02, 04 e 07** (e a parte unitária do 06) estão em
+>    [`services/api-contatos/test/limite.test.js`](../services/api-contatos/test/limite.test.js).
+> 5. **Seção 5:** três itens que estavam pendentes foram entregues depois, nas Etapas 3 e 4:
+>    - **Portal Web ligado à API real** — bloco 13, Fase 6 (09/11/2026): serviço `web` no
+>      [`docker-compose.yml`](../docker-compose.yml) (porta 8080) e [`deploy/k8s/70-web.yaml`](../deploy/k8s/70-web.yaml)
+>      (NodePort 30080, 2 réplicas); E2E contra a API real no job `api` do
+>      [CI](../.github/workflows/ci.yml); detalhes em [`portal-pendencias.md`](portal-pendencias.md).
+>    - **Serviço de Notificações** — bloco 10: [`services/notificacoes/`](../services/notificacoes/) (fila
+>      `emails`, Mailpit local); T-AUTH-09 a 13 em [`tests/confirmacao.test.js`](../tests/confirmacao.test.js);
+>      CQ-03 em [`tests/cq03-onboarding.test.js`](../tests/cq03-onboarding.test.js) e
+>      [`ensaios/cq03-2026-11-08.md`](ensaios/cq03-2026-11-08.md).
+>    - **LGPD (exportação, cancelamento, exclusão em 30 dias) e DPA** — bloco 14: rotas `/conta` em
+>      [`services/api-contatos/src/rotas/conta.js`](../services/api-contatos/src/rotas/conta.js), job diário em
+>      [`src/exclusao.js`](../services/api-contatos/src/exclusao.js), migração
+>      [`004_exclusao.sql`](../db/migrations/004_exclusao.sql), T-LGPD-01 a 05 e T-ISO-18 em
+>      [`tests/lgpd.test.js`](../tests/lgpd.test.js), T-RLS-21; esboço do DPA em [`dpa-esboco.md`](dpa-esboco.md).
 
 ## De onde vêm os itens
 
@@ -28,8 +60,8 @@ Legenda: ✅ feito, com evidência · ⏳ pendente (onde e quando está registra
 | 1.2 | Cada serviço com o seu dado (banco por serviço, no mesmo PostgreSQL) | ✅ | Schemas `orbita` e `importacao` com papéis separados (`api_contatos`, `importacao_svc`): [`db/migrations/`](../db/migrations/), [`db/init/`](../db/init/). O papel da Importação não tem GRANT em `orbita`: T-RLS-07 em [`tests/rls.test.js`](../tests/rls.test.js) |
 | 1.3 | Comunicação entre os serviços | ✅ | Fila BullMQ (API → Importação) e rotas `/interno` com token de serviço (Importação → API): [ADR-004](adr/adr-004-comunicacao-entre-servicos.md), seção 8 de [`contrato-api.md`](contrato-api.md) |
 | 1.4 | O tenant vem só do JWT, nunca de parâmetro | ✅ | T-ISO-13 (varre as rotas) e T-ISO-06/07 em [`tests/isolamento.test.js`](../tests/isolamento.test.js); [ADR-002](adr/adr-002-identidade-tenant.md) |
-| 1.5 | O tenant atravessa os dois serviços | ✅ | JWT → payload do job → claim do token de serviço: T-ISO-09, T-OBS-02 ([`tests/observabilidade.test.js`](../tests/observabilidade.test.js)) |
-| 1.6 | Isolamento garantido pelo banco (RLS `ENABLE` + `FORCE` + `NULLIF`) | ✅ | [`db/migrations/001_base.sql`](../db/migrations/001_base.sql); T-RLS-01 a T-RLS-19 em [`tests/rls.test.js`](../tests/rls.test.js); [ADR-001](adr/adr-001-tenancy.md) |
+| 1.5 | O tenant atravessa os dois serviços | ✅ | JWT → payload do job → claim do token de serviço: T-ISO-09, T-OBS-02 (~~[`tests/observabilidade.test.js`](../tests/observabilidade.test.js)~~ ensaio com os logs; ver nota 1) |
+| 1.6 | Isolamento garantido pelo banco (RLS `ENABLE` + `FORCE` + `NULLIF`) | ✅ | [`db/migrations/001_base.sql`](../db/migrations/001_base.sql); T-RLS-01 a ~~T-RLS-19~~ T-RLS-21 (nota 2) em [`tests/rls.test.js`](../tests/rls.test.js); [ADR-001](adr/adr-001-tenancy.md) |
 | 1.7 | Roda com um comando | ✅ | `docker compose up -d --build --wait` ([README, "Como rodar"](../README.md#como-rodar)) |
 
 ## 2. Isolamento demonstrado ao vivo [README]
@@ -62,11 +94,11 @@ Legenda: ✅ feito, com evidência · ⏳ pendente (onde e quando está registra
 
 | # | Item | Estado | Evidência |
 |---|---|---|---|
-| 4.1 | Um serviço cai e o resto segue (worker, Redis e banco) | ✅ | [`scripts/demo-degradacao.ps1`](../scripts/demo-degradacao.ps1); T-RES-03, 04 e 07 automatizados |
+| 4.1 | Um serviço cai e o resto segue (worker, Redis e banco) | ✅ | [`scripts/demo-degradacao.ps1`](../scripts/demo-degradacao.ps1); ~~T-RES-03, 04 e 07 automatizados~~ T-RES-03 e 04 são ensaios do script; T-RES-07 tem apoio unitário em `services/*/test/pool-erro.test.js` (nota 3) |
 | 4.2 | Job repetido não duplica contatos | ✅ | T-IMP-09 em [`tests/idempotencia.test.js`](../tests/idempotencia.test.js); [`scripts/ensaio-reprocessamento.ps1`](../scripts/ensaio-reprocessamento.ps1) (T-IMP-14) |
 | 4.3 | Importação em lotes de 100 com pausa de 500 ms | ✅ | T-IMP-13 (`TESTES_LENTOS=1`) em [`tests/importacao.test.js`](../tests/importacao.test.js) |
-| 4.4 | Limites por plano (linhas, importações simultâneas, rate limit) | ✅ | [`planos.js`](../services/api-contatos/src/planos.js); T-IMP-05, 06, 08; T-RL-01 a 07 em [`tests/rate-limit.test.js`](../tests/rate-limit.test.js) |
-| 4.5 | `x-request-id` atravessa API → fila → worker → API | ✅ | T-OBS-01 e T-OBS-02 em [`tests/observabilidade.test.js`](../tests/observabilidade.test.js) |
+| 4.4 | Limites por plano (linhas, importações simultâneas, rate limit) | ✅ | [`planos.js`](../services/api-contatos/src/planos.js); T-IMP-05, 06, 08; T-RL-01 a 07 em [`tests/rate-limit.test.js`](../tests/rate-limit.test.js) e (02, 04, 07) em [`services/api-contatos/test/limite.test.js`](../services/api-contatos/test/limite.test.js) (nota 4) |
+| 4.5 | `x-request-id` atravessa API → fila → worker → API | ✅ | T-OBS-01 ~~e T-OBS-02~~ em [`tests/observabilidade.test.js`](../tests/observabilidade.test.js); T-OBS-02 é ensaio com os logs do compose (nota 1) |
 | 4.6 | Deploy em Kubernetes (kind), com 2 réplicas da API | ✅ | [`deploy/k8s/`](../deploy/k8s/), [`scripts/deploy-kind.ps1`](../scripts/deploy-kind.ps1); probes e `preStop` explicados em [`pendencias-bloco-7.md`](pendencias-bloco-7.md) (seção 9) |
 | 4.7 | Segredos fora do repositório | ✅ | `npm run env` gera o `.env` (ignorado pelo git); exemplos em `.env.example` e [`deploy/k8s/exemplos/`](../deploy/k8s/exemplos/) |
 
@@ -74,11 +106,11 @@ Legenda: ✅ feito, com evidência · ⏳ pendente (onde e quando está registra
 
 | Item | Estado | Onde está registrado |
 |---|---|---|
-| Portal Web ligado à API real | ⏳ Implementado contra o simulador; integração na Fase 6 do bloco 13 | [`portal-pendencias.md`](portal-pendencias.md) |
-| Serviço de Notificações (e-mail de confirmação, CQ-03) | ⏳ Planejado, bloco 10 | [C4, "Estado na Etapa 2"](02-arquitetura-c4.md#estado-na-etapa-2) |
+| Portal Web ligado à API real | ⏳ Implementado contra o simulador; integração na Fase 6 do bloco 13. **✅ Entregue em 09/11/2026 (nota 5)** | [`portal-pendencias.md`](portal-pendencias.md) |
+| Serviço de Notificações (e-mail de confirmação, CQ-03) | ⏳ Planejado, bloco 10. **✅ Entregue no bloco 10 (nota 5)** | [C4, "Estado na Etapa 2"](02-arquitetura-c4.md#estado-na-etapa-2) |
 | Gerador de Documentos (propostas em PDF) | Fora do escopo do semestre | [`contrato-api.md`](contrato-api.md), seção 10 |
 | Armazenamento S3 | Adiado | [ADR-004](adr/adr-004-comunicacao-entre-servicos.md) |
-| Exportação, cancelamento e exclusão em 30 dias (LGPD); esboço do DPA | ⏳ Bloco 14 (Etapa 4) | [`lgpd.md`](lgpd.md) |
+| Exportação, cancelamento e exclusão em 30 dias (LGPD); esboço do DPA | ⏳ Bloco 14 (Etapa 4). **✅ Entregue no bloco 14 (nota 5)** | [`lgpd.md`](lgpd.md) |
 | `maxmemory` + `noeviction` no Redis do kind; "faxineiro" de importações presas; histórico de execução (J10) | ⏳ Pendências de código P-1 a P-3 | [ADR-004](adr/adr-004-comunicacao-entre-servicos.md), "Pendências de código abertas por este ADR" |
 
 ## Roteiro curto da demonstração ao vivo

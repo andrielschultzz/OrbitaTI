@@ -46,7 +46,8 @@ documentação e o ADR-004 ficam para o Bloco 7, e este arquivo garante que nada
 | J10 | ADR-004: decisão registrada, implementação pendente (P-3) |
 | J12 | [`contrato-api.md`](contrato-api.md), seção 1 (versão 1.3) |
 | **Continua aberto (código)** | ADR-004, "Pendências de código abertas por este ADR": **P-1** `maxmemory` + `noeviction` no Redis do kind; **P-2** faxineiro; **P-3** histórico de execução (J10) |
-| **Aberto no bloco 10** | Seção 10 deste arquivo: **N4** SMTP do provedor real (auth, TLS, SPF/DKIM) na VM; **N9** não existe rota de reenvio do e-mail de confirmação (registrado no bloco 11). **N1** e **N5** fechadas na Fase 6 do bloco 13 (09/11/2026) |
+| **Aberto no bloco 10** | Seção 10 deste arquivo: **N4** SMTP do provedor real (auth, TLS, SPF/DKIM) na VM; **N9** não existe rota de reenvio do e-mail de confirmação (registrado no bloco 11). **N1** e **N5** fechadas na Fase 6 do bloco 13 (09/11/2026). **Revisão de 10/11/2026 (Bloco 15):** a N4 passou a **fora do escopo (D-15.1)**, porque não haverá VM (seção 13); a N9 continua aberta |
+| **Decidido no Bloco 15** | Seção 13: **D-15.1** (apresentação local, sem VM) e a nota sobre os comentários de `001_base.sql` e `01-papeis.sh` |
 
 ---
 
@@ -116,7 +117,7 @@ seção 11 dele e entram no ADR-004 no Bloco 7.
 | K3 | CSV com cabeçalho obrigatório (`nome`, `email`, `telefone`, `empresa`, `observacao`), `,` ou `;`, BOM aceito; 422 para CSV vazio ou sem colunas | "Formato do CSV" (seção 3) |
 | K4 | Rotas `/interno/importacoes/:id/inicio` e `/falha`; `total_lotes` informado pelo worker | Bug de desenho: sem elas a importação podia nunca concluir |
 | K5 | "Esfriando" usa `COALESCE(ultima_interacao_em, criado_em)`; interação usa `GREATEST` | — |
-| K6 | `GET /planos` pública, com preço em centavos no `planos.js` e sem rate limit; `PORTAL_URL` nos links de e-mail; porta 3000 só em `127.0.0.1`; `trustProxy` | Preparo para o Portal atrás de Nginx e para a VM do LARCC |
+| K6 | `GET /planos` pública, com preço em centavos no `planos.js` e sem rate limit; `PORTAL_URL` nos links de e-mail; porta 3000 só em `127.0.0.1`; `trustProxy` | Preparo para o Portal atrás de Nginx e para a VM do LARCC. *Revisão de 10/11/2026 (Bloco 15):* a parte da VM ficou **fora do escopo (D-15.1)**; o resto vale para o compose e o kind |
 
 ---
 
@@ -243,7 +244,7 @@ tenta importar de novo).
 | J2 | Onde fica o contador | Sempre no **Redis**, numa conexão própria, separada da fila (`enableOfflineQueue: false`, `commandTimeout` de 1 s, `skipOnError: true`). Redis fora: o limite é ignorado e a API segue (T-RES-04). **Sem `REDIS_URL` a API não sobe.** Contador em memória só quando os testes pedem (`limiteEmMemoria`), porque com 2 réplicas no kind cada uma contaria separado e o limite dobraria sem ninguém perceber | `app.js`, `limite.js`; teste "sem REDIS_URL a API recusa subir" |
 | J3 | Escopo do contador | **Um por tenant**, somando todas as rotas, não 60 por rota (o T-RL-01 alterna duas rotas). Login: IP + e-mail **em minúsculas** (a mesma conta em maiúsculas não ganha contador novo). Cadastro: só IP | `limite.js`; T-RL-01, T-RL-03 |
 | J4 | `trustProxy` por número de saltos | **O Fastify não aceita mais.** Desde a 5.12.1 (18/08/2026, advisory [GHSA-3m5p-2c4r-xxw2](https://github.com/fastify/fastify/security/advisories/GHSA-3m5p-2c4r-xxw2), CVE-2026-16732), `trustProxy: <número>` não confia em ninguém: só contar saltos não confere **quem** conectou, e um cliente que alcançasse a API direto forjaria o IP. Provado com teste mínimo e com o `request.js` de 5.10.0 a 5.12.8 (aceito até 5.12.0, desligado a partir de 5.12.1); a documentação (`Server.md`) diz o mesmo. **Implementado:** `TRUST_PROXY_SALTOS` (padrão 1) **e** a conexão precisa vir de rede interna (loopback, 10/8, 172.16/12, 192.168/16, link-local, via `@fastify/proxy-addr`, o mesmo módulo que o Fastify usa). Se a API for exposta na internet por engano, o header de quem vem de fora é ignorado | `app.js` (`confiarNoProxy`); T-RL-06 (integração e unitário) |
-| J5 | Por que não fixar uma sub-rede confiável | Seria o jeito "oficial" (`trustProxy: '172.20.0.0/16'`), mas: (a) o compose escolhe a sub-rede sozinho e o IP do Nginx muda a cada subida; (b) fixar uma sub-rede no compose arrisca **colidir com a rede da VM do LARCC** (ou do campus), e a colisão derruba o acesso à VM ou aos contêineres; (c) a conta não fecha no kind, onde a rede de pods é outra. "Rede interna" cobre os três ambientes sem configuração | `app.js` |
+| J5 | Por que não fixar uma sub-rede confiável | Seria o jeito "oficial" (`trustProxy: '172.20.0.0/16'`), mas: (a) o compose escolhe a sub-rede sozinho e o IP do Nginx muda a cada subida; (b) fixar uma sub-rede no compose arrisca **colidir com a rede da VM do LARCC** (ou do campus), e a colisão derruba o acesso à VM ou aos contêineres; (c) a conta não fecha no kind, onde a rede de pods é outra. "Rede interna" cobre os três ambientes sem configuração. *Revisão de 10/11/2026 (Bloco 15):* o risco (b), colisão com a rede da VM, ficou **fora do escopo (D-15.1)**: não haverá VM. O argumento (a) e o (c) continuam valendo | `app.js` |
 | J6 | `TRUST_PROXY_SALTOS` no kind (**para o bloco 6**) | Enquanto a API estiver exposta direto pelo **NodePort 30080**, os manifests do kind usam **`TRUST_PROXY_SALTOS=0`**. Motivo: o NodePort chega à API com **IP interno**, por causa do NAT (kube-proxy e a rede do Docker Desktop). Com 1, qualquer um que chamasse `localhost:30080` forjaria o `X-Forwarded-For` e passaria pela checagem de "rede interna". Passa para **1** quando o Nginx do Portal entrar na frente (Fase 6 do bloco 13) | **Feito no bloco 6:** `deploy/k8s/40-api-contatos.yaml` com `TRUST_PROXY_SALTOS: "0"` (efeito colateral no limite de cadastro: K2, seção 9). **Passou para 1 na Fase 6 do bloco 13 (09/11/2026):** a 30080 virou o nginx do Portal (`70-web.yaml`) e a API virou ClusterIP. Conferido no kind e no compose: `X-Forwarded-For: 6.6.6.6` do cliente é ignorado |
 | J7 | A suíte de testes e o limite de cadastro | Medido: cerca de **51** `POST /auth/cadastro` por execução (os 400 e 409 dos testes de cadastro também contam). Num IP só, duas execuções seguidas chegaram a **56 de 60**. Decisão: cada arquivo de teste manda `X-Forwarded-For: 203.0.113.N` (faixa de documentação, RFC 5737), um N por arquivo. Depois disso: 2 execuções seguidas + `npm run seed`, nenhum 429 inesperado (o maior IP ficou em 24). **O padrão de produção (60) não mudou.** A suíte depende de `TRUST_PROXY_SALTOS=1` no compose | `tests/apoio/api.js`; README |
 
@@ -309,7 +310,7 @@ O script **nunca** apaga namespace nem PVC: o reset total (`kubectl delete names
 | N1 | **Fechada na Fase 6 do bloco 13 (09/11/2026):** a 30080 virou o Portal; cadastro no kind → e-mail no Mailpit do kind → o link abre o Portal (200, `text/html`) → `GET /api/auth/confirmar` 200 `confirmado_em`. Texto original: no kind, o `PORTAL_URL` é `http://localhost:30080`, e a **30080 hoje é a API**, não o Portal. O link do e-mail (`/confirmar-email?token=...`) dá **404** `NAO_ENCONTRADO` no kind | O link tem de apontar para o Portal, que chama `GET /auth/confirmar` (contrato, seção 4). O Portal só entra no kind na Fase 6 do bloco 13. Até lá, no kind, o e-mail chega ao Mailpit, mas o clique não confirma. No compose funciona (`PORTAL_URL=http://localhost:8080`, o Portal pelo `docker run`). **Fecha** quando o nginx do Portal assumir a 30080: o valor continua o mesmo, só o que responde na porta muda | `deploy/k8s/40-api-contatos.yaml` |
 | N2 | Notificações e Mailpit **entram no kind** | Sem worker, a API do kind enfileiraria um e-mail por cadastro e os jobs ficariam no Redis **para sempre** (`removeOnComplete` só age quando o job termina), cada um com o e-mail da pessoa e um link que vale 24 h como credencial | `deploy/k8s/55-mailpit.yaml`, `60-notificacoes.yaml`, `scripts/deploy-kind.ps1` |
 | N3 | Token de confirmação com o mesmo `JWT_SEGREDO`, separado da sessão pelo claim `finalidade: "confirmar-email"`, com recusa **explícita** nos dois lados | Um segredo próprio daria a mesma garantia, com uma variável a mais no `.env`, no compose e no Secret do kind. A recusa explícita é testada nos dois sentidos (T-AUTH-11 e T-AUTH-12) e por mutação: tirar qualquer uma das duas checagens derruba o teste correspondente | `autenticacao.js`, `rotas/auth.js` |
-| N4 | **Pendência (VM):** SMTP do provedor real | O worker hoje fala com o Mailpit sem autenticação e sem exigir TLS. Na VM: `SMTP_USUARIO`, `SMTP_SENHA` (no Secret), `requireTLS` e um remetente de domínio com SPF e DKIM, senão o e-mail cai no spam e o CQ-03 mede uma entrega que não acontece | `services/notificacoes/src/worker.js` |
+| N4 | ~~**Pendência (VM):**~~ **Fora do escopo (D-15.1), revisão de 10/11/2026 (Bloco 15):** a apresentação é local e o e-mail vai para o Mailpit; em produção, isto volta a ser pendência. SMTP do provedor real | O worker hoje fala com o Mailpit sem autenticação e sem exigir TLS. Na VM: `SMTP_USUARIO`, `SMTP_SENHA` (no Secret), `requireTLS` e um remetente de domínio com SPF e DKIM, senão o e-mail cai no spam e o CQ-03 mede uma entrega que não acontece | `services/notificacoes/src/worker.js` |
 | N5 | **Risco aceito:** o `error_log` do nginx do Portal registra a linha da requisição (com `?token=`) quando há erro no proxy (ex.: API fora) | O `access_log` já usa `$uri` (sem a query). O `error_log` não tem formato configurável. Acontece só em erro de upstream, e o token vale no máximo 24 h. Mitigação se incomodar: `error_log` em nível `crit`. **Fechada na Fase 6 do bloco 13 (09/11/2026):** `error_log /dev/stderr crit`, e o `access_log` ganhou `upstream=$upstream_addr $upstream_status` para o diagnóstico de 502 não se perder. Conferido: com a API parada, `/api/auth/confirmar?token=...` deu 502 e nenhum token apareceu no log do nginx | `web/nginx/default.conf.template` |
 | N6 | Achado: o BullMQ 6 **recusa `:` em `jobId` próprio** ("Custom Id cannot contain :", `job.js`) | Com `confirmar-cadastro:<id>`, todo `add` falharia, o cadastro só registraria o aviso de fila fora e **nenhum** e-mail sairia, sem erro visível. Usado `confirmar-cadastro-<usuario_id>`; o teste unitário confere que o id não tem `:` | `services/api-contatos/src/fila.js` |
 | N7 | Achado: o Fastify registra a URL **com a query string** em todo "incoming request" | O token do link iria para o log da API. Um serializer de `req` troca o valor de `token` por `[oculto]` (vale também para o link de exportação do bloco 14). T-OBS-04 confere que nenhum token e nenhum e-mail completo aparece no log | `services/api-contatos/src/app.js` |
@@ -339,3 +340,57 @@ O script **nunca** apaga namespace nem PVC: o reset total (`kubectl delete names
 | L6 | Achado: o worker gravava em `importacao.execucoes` **antes** de falar com a API. Um job órfão de um tenant já excluído recriaria linhas | Correção: com 404 da API, o worker apaga o que gravou daquela importação | `services/importacao/src/processar.js` |
 | L7 | Limitação: a exportação não traz `importacao.erros_linha` (a API não lê esse schema) | Declarada em `lgpd.md` e no contrato (seção 9) | `docs/lgpd.md` |
 | L8 | Risco aceito: falha definitiva ao apagar o schema `importacao` (depois de 10 tentativas) deixa o job 7 dias no Redis para reprocessar à mão, com `evento: "exclusao_importacao_falhou"` | A API já apagou `orbita` e não pede de novo; 10 tentativas com espera exponencial a partir de 30 s cobrem horas de queda | `fila.js` (`OPCOES_JOB_EXCLUSAO`) |
+
+## 13. Bloco 15 — D-15.1: apresentação local, sem VM (10/11/2026)
+
+### D-15.1 — A apresentação roda localmente
+
+**Decisão da equipe (10/11/2026):** a apresentação roda **localmente, no notebook**: o Portal e as demos no
+Docker Compose, e o kind para mostrar o deploy. **Publicar numa VM (LARCC) ficou fora do escopo.**
+
+**Por quê:**
+- **Risco no dia:** a demo dependeria da rede do campus e do acesso à VM. No notebook, nada disso pode falhar.
+- **Tempo:** HTTPS, SMTP real, firewall, backup e scripts em bash para a VM custariam dias que estão melhor
+  gastos nos testes, nos documentos e no ensaio da defesa.
+- **Nada da avaliação depende de URL pública:** isolamento, importação, degradação, LGPD e deploy no kind são
+  todos demonstrados na máquina local.
+
+**Consequência:** tudo que dependia da VM passa a ser **"fora do escopo (D-15.1)"**. O texto antigo fica
+como registro (marcado em cada item), e cada um volta a ser pendência se o produto for publicado:
+
+| Item | Onde estava | Em produção, o que fazer |
+|---|---|---|
+| HTTPS e HSTS | [`portal-pendencias.md`](portal-pendencias.md), seção 2 | Certificado (ou proxy com TLS) e o HSTS no `web/nginx/seguranca.conf` |
+| SMTP real (**N4**: autenticação, TLS, SPF/DKIM) | Seção 10 | `SMTP_USUARIO`, `SMTP_SENHA`, `requireTLS` e remetente com SPF e DKIM |
+| K6, só a parte "preparo para a VM do LARCC" (o `PORTAL_URL`, a porta 3000 em `127.0.0.1` e o `trustProxy` continuam valendo no compose e no kind) | Seção 4 | O `PORTAL_URL` com o endereço público |
+| **J5** (b), colisão de rede com a VM | Seção 8 | Conferir a faixa de rede do servidor antes de fixar sub-rede |
+| `TRUST_PROXY_SALTOS` 2 (proxy do laboratório na frente) | `portal-pendencias.md`, seção 2 | Ajustar ao número real de proxies |
+| Versão bash dos scripts `.ps1` (ou `pwsh` no Linux) | `portal-pendencias.md`, seção 2 | Só se o servidor for Linux sem PowerShell |
+| Backup, firewall, `PORTAL_URL` público e acesso à VM | `portal-pendencias.md`, seção 2 | Rotina de backup, só a porta do `web` aberta, controle de quem acessa |
+
+Também caem como "fora do escopo (D-15.1)" as promessas que dependem de ambiente publicado em
+[`lgpd.md`](lgpd.md) e [`dpa-esboco.md`](dpa-esboco.md): TLS no tráfego, criptografia em repouso e retenção
+de logs por 6 meses (revisão de 10/11/2026 em cada um).
+
+**K2 continua como está:** no kind local, os limites por IP (cadastro, confirmação de e-mail e link de
+exportação) seguem globais. Onde a seção 9 diz "no compose, que é o modelo da VM", leia-se agora "no
+compose, que é o ambiente da apresentação": lá o IP real chega à API.
+
+### Nota: comentários do banco desatualizados (não serão editados)
+
+Os comentários de `db/migrations/001_base.sql` ("Função de login: a ÚNICA exceção controlada ao RLS") e de
+`db/init/01-papeis.sh` (o `orbita_auth` "existe só para ser dono da função `orbita.buscar_credencial`")
+ficaram **desatualizados desde a migração 004**: a `orbita.tenants_para_excluir()` também é do `orbita_auth`
+(L1, seção 12). Hoje são **duas** exceções controladas, ambas funções `SECURITY DEFINER` do `orbita_auth`,
+com `EXECUTE` só para `api_contatos`.
+
+**Por que não corrigir os arquivos:**
+- `001_base.sql`: o `db/migrate.js` guarda o SHA-256 de cada migração aplicada (`public.schema_migrations`)
+  e **para com erro** se o conteúdo mudar ("mudou depois de aplicada. Não edite migração aplicada"). Mudar
+  um comentário muda o hash, e o migrate recusaria rodar em todo banco que já tem a 001 (compose, kind e CI
+  com volume).
+- `01-papeis.sh`: só roda no primeiro boot do Postgres. Corrigir não muda nada nos bancos existentes, e
+  manter o texto igual ao da 001 evita duas versões da mesma explicação.
+
+**A fonte certa é a documentação:** ADR-002 (exceção do login), L1 (seção 12) e o `CLAUDE.md` (regra 6,
+revisada em 10/11/2026).
